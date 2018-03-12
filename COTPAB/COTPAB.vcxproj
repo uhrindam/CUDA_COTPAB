@@ -75,6 +75,7 @@
     <LinkIncremental>true</LinkIncremental>
     <IncludePath>C:\+Libarys\opencv 3.3 cuda 8.0 vs 15\include;$(IncludePath)</IncludePath>
     <LibraryPath>C:\+Libarys\opencv 3.3 cuda 8.0 vs 15\x64\vc14\lib;$(LibraryPath)</LibraryPath>
+    <ReferencePath>c:\+Libarys\opencv 3.3 cuda 8.0 vs 15\x64\vc14\bin\;$(ReferencePath)</ReferencePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -156,6 +157,12 @@ copy "$(CudaToolkitBinDir)\cudart*.dll" "$(OutDir)"</Command>
   </ItemDefinitionGroup>
   <ItemGroup>
     <CudaCompile Include="kernel.cu" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="slic.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="slic.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
