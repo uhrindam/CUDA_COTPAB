@@ -13,6 +13,10 @@ using namespace cv;
 
 #define nc 80 //maximum vizsgált távolság a centroidok keresésekor
 #define numberofSuperpixels 5000
+#define iteration 10
+
+float *ff;
+vector<vector<float> > h_centers;
 
 int cols;
 int rows;
@@ -24,10 +28,6 @@ float *centers;
 int *center_counts;
 uchar3 *colors;
 
-__device__ int d_cols;
-__device__ int d_rows;
-__device__ int d_step;
-__device__ int d_centersLength;
 __device__ int *d_clusters;			//1D --> cols * rows
 __device__ float *d_distances;		//1D --> cols * rows
 __device__ float *d_centers;		//2D --> centersLength * 5
@@ -37,18 +37,124 @@ __device__ uchar3 *d_colors;		//1D --> cols * rows
 __device__ float compute_dist(int ci, int x, int y, uchar3 colour, float *d_centers, int pitch, int d_step)
 {
 	//színtávolság
-	float dc = sqrt(pow(d_centers[ci *pitch  + 0] - colour.x, 2) + pow(d_centers[ci *pitch  + 1] - colour.y, 2)
-		+ pow(d_centers[ci *pitch  + 2] - colour.z, 2));
+	float dc = sqrt(pow(d_centers[ci *pitch + 0] - colour.x, 2) + pow(d_centers[ci *pitch + 1] - colour.y, 2)
+		+ pow(d_centers[ci *pitch + 2] - colour.z, 2));
 	//euklideszi távolság
-	float ds = sqrt(pow(d_centers[ci *pitch  + 3] - x, 2) + pow(d_centers[ci *pitch  + 4] - y, 2));
+	float ds = sqrt(pow(d_centers[ci *pitch + 3] - x, 2) + pow(d_centers[ci *pitch + 4] - y, 2));
 
 	return sqrt(pow(dc / nc, 2) + pow(ds / d_step, 2));
 }
 
-__global__ void compute(int d_cols, int d_rows, int d_step, int d_centersLength, int *d_clusters,  float *d_distances, 
+__global__ void compute(int d_cols, int d_rows, int d_step, int d_centersLength, int *d_clusters, float *d_distances,
 	float *d_centers, int *d_center_counts, uchar3 *d_colors, int pitch)
 {
-	d_distances[threadIdx.x] = compute_dist(885, threadIdx.x % d_rows, threadIdx.x / d_rows, d_colors[threadIdx.x], d_centers, pitch, d_step);
+	int howManyPixels = d_cols*d_rows - 1;
+	int clusterIDX = 0;
+
+	for (int i = 0; i < iteration; i++)
+	{
+		/*if (threadIdx.x < howManyPixels)
+			d_distances[threadIdx.x] = FLT_MAX;
+
+		__syncthreads();*/
+
+		//if (threadIdx.x >= howManyPixels)
+		//if (threadIdx.x >= howManyPixels)
+		//{
+			//ha a szál id-je nagyobb mint a pixelek száma, akkor az egy cluster
+			//szál, amely szálnak az indexe itt kerül inicializálásra
+		//clusterIDX = threadIdx.x - howManyPixels;---------------------------------------------------------
+		clusterIDX = blockIdx.x * blockDim.x + threadIdx.x;
+		/* Only compare to pixels in a 2 x step by 2 x step region. ----------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!-------------------------- */
+
+		/*int YE = d_centers[clusterIDX *pitch + 3] - d_step;
+		int YV = d_centers[clusterIDX *pitch + 3] + d_step;
+		int Y = d_centers[clusterIDX *pitch + 3];
+		int XE = d_centers[clusterIDX *pitch + 4] - d_step;
+		int X = d_centers[clusterIDX *pitch + 4];
+		int XV = d_centers[clusterIDX *pitch + 4] + d_step;
+		if (clusterIDX == 4500)
+		{
+			printf("%i\n", YE);
+			printf("%i kozepe \n", Y);
+			printf("%i\n", YV);
+			printf("%i\n", XE);
+			printf("%i kozepe \n", X);
+			printf("%i\n", XV);
+		}
+
+
+		for (int pixelY = YE; pixelY < YV; pixelY++)
+		{
+			for (int pixelX = XE; pixelX < XV; pixelX++)
+			{*/
+		for (int pixelY = d_centers[clusterIDX *pitch + 3] - d_step; pixelY < d_centers[clusterIDX *pitch + 3] + d_step; pixelY++)
+		{
+			for (int pixelX = d_centers[clusterIDX *pitch + 4] - d_step; pixelX < d_centers[clusterIDX *pitch + 4] + d_step; pixelX++)
+			{
+				if (pixelY > 1000)
+				{
+
+				}
+				if (pixelX >= 0 && pixelX < d_rows && pixelY >= 0 && pixelY < d_cols) {
+					//float dc = sqrt(pow(d_centers[clusterIDX *pitch + 0] - d_colors[d_cols*pixelY + pixelX].x, 2) + 
+					//	pow(d_centers[clusterIDX *pitch + 1] - d_colors[d_cols*pixelY + pixelX].y, 2)
+					//	+ pow(d_centers[clusterIDX *pitch + 2] - d_colors[d_cols*pixelY + pixelX].z, 2));
+					////euklideszi távolság
+					//float ds = sqrt(pow(d_centers[clusterIDX *pitch + 3] - pixelX, 2) + pow(d_centers[clusterIDX *pitch + 4] - pixelY, 2));
+					//float distance = sqrt(pow(dc / nc, 2) + pow(ds / d_step, 2));
+
+					uchar3 colour = d_colors[d_cols*pixelY + pixelX];
+
+					float distance = compute_dist(clusterIDX, pixelX, pixelY, colour, d_centers, pitch, d_step);
+					if (distance < d_distances[d_cols*pixelY + pixelX])
+					{
+						d_distances[d_cols*pixelY + pixelX] = distance;
+						d_clusters[d_cols*pixelY + pixelX] = clusterIDX;
+					}
+					//else
+					//{
+					//	if (clusterIDX == 4500)
+					//	{
+					//		float a = d_distances[d_cols*pixelY + pixelX];
+					//		int c = d_clusters[d_cols*pixelY + pixelX];
+
+					//		int cE = d_centers[clusterIDX *pitch + 0];
+					//		int cM = d_centers[clusterIDX *pitch + 1];
+					//		int cH = d_centers[clusterIDX *pitch + 2];
+					//		int cN = d_centers[clusterIDX *pitch + 3];
+					//		int cO = d_centers[clusterIDX *pitch + 4];
+
+					//		int g = d_centers[clusterIDX *pitch + 5];
+					//		int gg = d_centers[clusterIDX *pitch + 6];
+					//		int ggg = d_centers[clusterIDX *pitch + 7];
+					//		int gggg = d_centers[clusterIDX *pitch + 8];
+
+
+					//		printf("rows: %i, cols: %i\n", d_rows, d_cols);
+					//		printf("%i %i %i\n", blockIdx.x, blockDim.x, threadIdx.x);
+					//		printf("%u %u %u %u %u pixel\n", (unsigned int)colour.x, (unsigned int)colour.y, (unsigned int)colour.z, (unsigned int)pixelX, (unsigned int)pixelY);
+					//		printf("%u %u %u %u %u cluster\n", (unsigned int)cE, (unsigned int)cM, (unsigned int)cH, (unsigned int)cN, (unsigned int)cO);
+
+					//		//printf("%u %u %u %u %u cl\n", (unsigned int)cO, (unsigned int)g, (unsigned int)gg, (unsigned int)ggg, (unsigned int)gggg);
+					//		printf("%f jelenglegi\n", a);
+					//		printf("%f uj\n", distance);
+					//		printf("%i jelenglegi\n", c);
+					//		printf("%i uj\n\n", clusterIDX);
+
+
+					//		int kk = 0;
+					//		//printf("hoszabb");
+					//	}
+					//}
+				}
+			}
+		}
+
+		//}
+	}
+
+	//d_distances[threadIdx.x] = compute_dist(885, threadIdx.x % d_rows, threadIdx.x / d_rows, d_colors[threadIdx.x], d_centers, pitch, d_step);
 }
 
 void initData(Mat image)
@@ -63,7 +169,7 @@ void initData(Mat image)
 
 	//Ez azért kell mert elõre nem tudom, hogy hány eleme lesz a centers-nek, ezért elõször egy vectorhoz adomgatom hozzá az elemeket
 	// majd késõbb létrehozom a tömböt annyi elemmel, ahány eleme van a segédvectornak, majd átmásolom az adatokat.
-	vector<vector<float> > h_centers;
+	//vector<vector<float> > h_centers;
 	for (int i = step; i < cols - step / 2; i += step) {
 		for (int j = step; j < rows - step / 2; j += step) {
 			vector<float> center;
@@ -93,7 +199,15 @@ void initData(Mat image)
 			centers[idx] = h_centers[i][j];
 			idx++;
 		}
-
+		if (i == 4500)
+		{
+			ff = new float[5];
+			ff[0] = h_centers[i][0];
+			ff[1] = h_centers[i][1];
+			ff[2] = h_centers[i][2];
+			ff[3] = h_centers[i][3];
+			ff[4] = h_centers[i][4];
+		}
 		center_counts[i] = 0;
 	}
 
@@ -111,23 +225,18 @@ void initData(Mat image)
 
 void dataCopy()
 {
-	cudaMalloc((void**)&d_cols, sizeof(int));
-	cudaMemcpy(&d_cols, &cols, sizeof(int), cudaMemcpyHostToDevice);
-	cudaMalloc((void**)&d_rows, sizeof(int));
-	cudaMemcpy(&d_rows, &rows, sizeof(int), cudaMemcpyHostToDevice);
-	cudaMalloc((void**)&d_step, sizeof(int));
-	cudaMemcpy(&d_step, &step, sizeof(int), cudaMemcpyHostToDevice);
-	cudaMalloc((void**)&d_centersLength, sizeof(int));
-	cudaMemcpy(&d_centersLength, &centersLength, sizeof(int), cudaMemcpyHostToDevice);
-
 	cudaMalloc((void**)&d_clusters, sizeof(int)*rows*cols);
 	cudaMemcpy(d_clusters, clusters, sizeof(int)*rows*cols, cudaMemcpyHostToDevice);
 	cudaMalloc((void**)&d_distances, sizeof(float)*rows*cols);
 	cudaMemcpy(d_distances, distances, sizeof(float)*rows*cols, cudaMemcpyHostToDevice);
 
-	size_t pitch = 5;
-	cudaMallocPitch((void**)&d_centers, &pitch, sizeof(float) * centersLength, 5);
-	cudaMemcpy2D(d_centers, pitch, centers, sizeof(float) * centersLength, sizeof(float) * centersLength, 5, cudaMemcpyHostToDevice);
+	//size_t pitch = 5;
+	//cudaMallocPitch((void**)&d_centers, &pitch, sizeof(float) * centersLength, 5);
+	//cudaMemcpy2D(d_centers, pitch, centers, sizeof(float) * centersLength, sizeof(float) * centersLength, 5, cudaMemcpyHostToDevice);
+
+	cudaMalloc((void**)&d_centers, sizeof(float)*centersLength * 5);
+	cudaMemcpy(d_centers, centers, sizeof(float)*centersLength * 5, cudaMemcpyHostToDevice);
+
 
 	cudaMalloc((void**)&d_center_counts, sizeof(int)*centersLength);
 	cudaMemcpy(d_center_counts, center_counts, sizeof(int)*centersLength, cudaMemcpyHostToDevice);
@@ -156,16 +265,56 @@ int main()
 	dataCopy();
 
 	int pitchInt = 5;
-	compute << <1, 100 >> > (d_cols, d_rows, d_step, d_centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, pitchInt);
+	int startedThreads = rows*cols + centersLength - 1;
+	int h = (centersLength / 5) + 1;
+	compute << <5, h >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, pitchInt);
 
 	cudaMemcpy(distances, d_distances, sizeof(float)*rows*cols, cudaMemcpyDeviceToHost);
-	
+	cudaMemcpy(clusters, d_clusters, sizeof(float)*rows*cols, cudaMemcpyDeviceToHost);
+
 	dataFree();
 
-	for (int i = 0; i < 101; i++)
+	int a = 0;
+
+	for (int i = 0; i < rows*cols; i++)
 	{
-		cout << distances[i] << endl;
+		if (clusters[i] == -1)
+		{
+			//cout << i << "x: " << i/cols << ", y: " << i % cols << endl;
+
+			a++;
+		}
 	}
+
+	//ofstream myfile;
+	//myfile.open("example.txt");
+	//for (int i = 0; i < centersLength; i++)
+	//{
+	//	myfile << i << " " << h_centers[i][0] << " " << h_centers[i][1] << " " << h_centers[i][2] << " " << h_centers[i][3] << " " << h_centers[i][4] <<  "\n";
+
+	//}
+	//myfile.close();
+
+	printf("%u %u %u %u %u cluster\n\n", (unsigned int)ff[0], (unsigned int)ff[1],
+		(unsigned int)ff[2], (unsigned int)ff[3], (unsigned int)ff[4]);
+
+	int b = rows*cols - a;
+	printf("\n%i\n", step);
+	printf("%i rows\n", rows);
+	printf("%i cols\n", cols);
+	printf("%i darab pixel\n", rows*cols);
+	printf("%i darab cluster\n", centersLength);
+	printf("%i darab elinditott szal\n", h * 5);
+	printf("%i darab clusterhez van renderve\n", b);
+	printf("%i darab nincs clusterhez renderve\n\n", a);
+
+
+
+	/*for (int i = 0; i < rows*cols; i++)
+	{
+		if (distances[i] != FLT_MAX)
+			cout << distances[i] << endl;
+	}*/
 
 	printf("vege");
 	///* Load the image and convert to Lab colour space. */
