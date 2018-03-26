@@ -43,16 +43,18 @@ __device__ float compute_dist(int ci, int y, int x, uchar3 colour, float *d_cent
 	return sqrt(pow(dc / nc, 2) + pow(ds / d_step, 2));
 }
 
-__device__ void compute0(int clusterIDX, int d_cols, int d_rows, int d_step, int d_centersLength, int *d_clusters, float *d_distances,
+__global__ void compute(int d_cols, int d_rows, int d_step, int d_centersLength, int *d_clusters, float *d_distances,
 	float *d_centers, int *d_center_counts, uchar3 *d_colors, int pitch)
 {
+	int clusterIDX = blockIdx.x * blockDim.x + threadIdx.x;
+
 	for (int pixelY = d_centers[clusterIDX *pitch + 3] - (d_step*1.5); pixelY < d_centers[clusterIDX *pitch + 3] + (d_step*1.5); pixelY++)
 	{
 		for (int pixelX = d_centers[clusterIDX *pitch + 4] - (d_step*1.5); pixelX < d_centers[clusterIDX *pitch + 4] + (d_step*1.5); pixelX++)
 		{
 
-			if (pixelX >= 0 && pixelX < d_rows && pixelY >= 0 && pixelY < d_cols) {
-
+			if (pixelX >= 0 && pixelX < d_rows && pixelY >= 0 && pixelY < d_cols)
+			{
 				uchar3 colour = d_colors[d_cols*pixelX + pixelY];
 
 				float distance = compute_dist(clusterIDX, pixelX, pixelY, colour, d_centers, pitch, d_step);
@@ -73,122 +75,35 @@ __device__ void compute0(int clusterIDX, int d_cols, int d_rows, int d_step, int
 	d_center_counts[clusterIDX] = 0;
 }
 
-__device__ void compute1(int idIn1D, int d_cols, float *d_centers, int *d_center_counts, uchar3 *d_colors, int pitch)
-{
-		d_distances[idIn1D] = FLT_MAX;
-		
-		/*int whichCluster = d_clusters[idIn1D];
-		d_centers[whichCluster*pitch + 0] += d_colors[idIn1D].x;
-		d_centers[whichCluster*pitch + 1] += d_colors[idIn1D].y;
-		d_centers[whichCluster*pitch + 2] += d_colors[idIn1D].z;
-		d_centers[whichCluster*pitch + 3] += idIn1D / d_cols;
-		d_centers[whichCluster*pitch + 4] += idIn1D % d_cols;
-
-		atomicAdd(&d_center_counts[whichCluster], 1);*/
-}
-
-
-__global__ void compute(int d_cols, int d_rows, int d_step, int d_centersLength, int *d_clusters, float *d_distances,
-	float *d_centers, int *d_center_counts, uchar3 *d_colors, int pitch)
-{
-	int howManyPixels = d_cols*d_rows - 1;
-	int idIn1D = blockIdx.x * blockDim.x + threadIdx.x;
-	//ha a szál id-je nagyobb mint a pixelek száma, akkor az egy cluster
-	//szál, amely szálnak az indexe itt kerül inicializálásra
-	int clusterIDX = idIn1D - howManyPixels;
-
-	//for (int i = 0; i < iteration; i++)
-	//{
-		if (idIn1D > howManyPixels)
-		{
-			for (int pixelY = d_centers[clusterIDX *pitch + 3] - (d_step*1.5); pixelY < d_centers[clusterIDX *pitch + 3] + (d_step*1.5); pixelY++)
-			{
-				for (int pixelX = d_centers[clusterIDX *pitch + 4] - (d_step*1.5); pixelX < d_centers[clusterIDX *pitch + 4] + (d_step*1.5); pixelX++)
-				{
-
-					if (pixelX >= 0 && pixelX < d_rows && pixelY >= 0 && pixelY < d_cols) {
-
-						uchar3 colour = d_colors[d_cols*pixelX + pixelY];
-
-						float distance = compute_dist(clusterIDX, pixelX, pixelY, colour, d_centers, pitch, d_step);
-						if (distance < d_distances[d_cols*pixelX + pixelY])
-						{
-							d_distances[d_cols*pixelX + pixelY] = distance;
-							d_clusters[d_cols*pixelX + pixelY] = clusterIDX;
-						}
-					}
-				}
-			}
-			//a centroidok alaphelyzetbe állítása
-			d_centers[clusterIDX *pitch + 0] = 0;
-			d_centers[clusterIDX *pitch + 1] = 0;
-			d_centers[clusterIDX *pitch + 2] = 0;
-			d_centers[clusterIDX *pitch + 3] = 0;
-			d_centers[clusterIDX *pitch + 4] = 0;
-			d_center_counts[clusterIDX] = 0;
-		}
-		__syncthreads();
-
-		//if (idIn1D <= howManyPixels)
-		//{
-		//	compute1(idIn1D, d_cols, d_centers, d_center_counts, d_colors,  pitch);
-		//}
-		//	d_distances[idIn1D] = FLT_MAX;
-		//	//printf("%f", d_distances[idIn1D]);
-		//	int whichCluster = d_clusters[idIn1D];
-		//	/*d_centers[whichCluster*pitch + 0] += d_colors[idIn1D].x;
-		//	d_centers[whichCluster*pitch + 1] += d_colors[idIn1D].y;
-		//	d_centers[whichCluster*pitch + 2] += d_colors[idIn1D].z;
-		//	d_centers[whichCluster*pitch + 3] += idIn1D / d_cols;
-		//	d_centers[whichCluster*pitch + 4] += idIn1D % d_cols;*/
-
-		//	//atomicAdd(&d_center_counts[whichCluster], 1);
-
-		//	/*int c_id = clusters[j][k];
-
-		//	if (c_id != -1) {
-		//		Vec3b colour = image.at<Vec3b>(k, j);
-
-		//		centers[c_id][0] += colour.val[0];
-		//		centers[c_id][1] += colour.val[1];
-		//		centers[c_id][2] += colour.val[2];
-		//		centers[c_id][3] += j;
-		//		centers[c_id][4] += k;
-
-		//		center_counts[c_id] += 1;
-		//	}*/
-		//}
-		//__syncthreads();
-
-	//}
-
-	//d_distances[threadIdx.x] = compute_dist(885, threadIdx.x % d_rows, threadIdx.x / d_rows, d_colors[threadIdx.x], d_centers, pitch, d_step);
-}
-
 __global__ void compute1(int d_cols, int d_rows, int d_step, int d_centersLength, int *d_clusters, float *d_distances,
 	float *d_centers, int *d_center_counts, uchar3 *d_colors, int pitch)
 {
-	int howManyPixels = d_cols*d_rows - 1;
 	int idIn1D = blockIdx.x * blockDim.x + threadIdx.x;
-	//ha a szál id-je nagyobb mint a pixelek száma, akkor az egy cluster
-	//szál, amely szálnak az indexe itt kerül inicializálásra
-	int clusterIDX = idIn1D - howManyPixels;
 
-	if (idIn1D <= howManyPixels)
-	{
-		d_distances[idIn1D] = FLT_MAX;
-		//printf("%f", d_distances[idIn1D]);
-		int whichCluster = d_clusters[idIn1D];
-		d_centers[whichCluster*pitch + 0] += d_colors[idIn1D].x;
-		d_centers[whichCluster*pitch + 1] += d_colors[idIn1D].y;
-		d_centers[whichCluster*pitch + 2] += d_colors[idIn1D].z;
-		d_centers[whichCluster*pitch + 3] += idIn1D / d_cols;
-		d_centers[whichCluster*pitch + 4] += idIn1D % d_cols;
+	d_distances[idIn1D] = FLT_MAX;
 
-		atomicAdd(&d_center_counts[whichCluster], 1);
-	}
-	__syncthreads();
+	int whichCluster = d_clusters[idIn1D];
+	atomicAdd(&d_centers[whichCluster*pitch + 0], d_colors[idIn1D].x);
+	atomicAdd(&d_centers[whichCluster*pitch + 1], d_colors[idIn1D].y);
+	atomicAdd(&d_centers[whichCluster*pitch + 2], d_colors[idIn1D].z);
+	atomicAdd(&d_centers[whichCluster*pitch + 3], idIn1D / d_cols);
+	atomicAdd(&d_centers[whichCluster*pitch + 4], idIn1D % d_cols);
+
+	atomicAdd(&d_center_counts[whichCluster], 1);
 }
+
+__global__ void compute2(int d_cols, int d_rows, int d_step, int d_centersLength, int *d_clusters, float *d_distances,
+	float *d_centers, int *d_center_counts, uchar3 *d_colors, int pitch)
+{
+	int idIn1D = blockIdx.x * blockDim.x + threadIdx.x;
+
+	d_centers[idIn1D*pitch + 0] = (int)(d_centers[idIn1D*pitch + 0] / d_center_counts[idIn1D]);
+	d_centers[idIn1D*pitch + 1] = (int)(d_centers[idIn1D*pitch + 1] / d_center_counts[idIn1D]);
+	d_centers[idIn1D*pitch + 2] = (int)(d_centers[idIn1D*pitch + 2] / d_center_counts[idIn1D]);
+	d_centers[idIn1D*pitch + 3] = (int)(d_centers[idIn1D*pitch + 3] / d_center_counts[idIn1D]);
+	d_centers[idIn1D*pitch + 4] = (int)(d_centers[idIn1D*pitch + 4] / d_center_counts[idIn1D]);
+}
+
 
 void initData(Mat image)
 {
@@ -277,6 +192,71 @@ void dataFree()
 	cudaFree(d_colors);
 }
 
+int divisorSearcher(int threadsToBeStarted)
+{
+	int i = 500;
+	bool divisor = false;
+	while (!divisor && i <= 1000)
+	{
+		if (threadsToBeStarted % i == 0)
+		{
+			divisor = true;
+		}
+		i++;
+	}
+	printf("%i osztoja %i-nek\n", i - 1, threadsToBeStarted);
+	return i - 1;
+}
+
+void colour_with_cluster_means(Mat image) {
+	cout << "FILL" << endl;//----------------------------------------------------------------------
+
+	vector<vector<int>> t_colours(centersLength);
+	for (int i = 0; i < t_colours.size(); i++)
+	{
+		t_colours[i].push_back(0);
+		t_colours[i].push_back(0);
+		t_colours[i].push_back(0);
+	}
+
+	/* Gather the colour values per cluster. */
+	for (int i = 0; i < image.cols; i++) {
+		for (int j = 0; j < image.rows; j++) {
+			int index = clusters[cols*j + i];
+			Vec3b colour = image.at<Vec3b>(j, i);
+
+			t_colours[index][0] += colour.val[0];
+			t_colours[index][1] += colour.val[1];
+			t_colours[index][2] += colour.val[2];
+		}
+	}
+
+	/* Divide by the number of pixels per cluster to get the mean colour. */
+	for (int i = 0; i < (int)t_colours.size(); i++) {
+		if (center_counts[i] != 0)
+		{
+			t_colours[i][0] /= center_counts[i];
+			t_colours[i][1] /= center_counts[i];
+			t_colours[i][2] /= center_counts[i];
+		}
+	}
+
+	/* Fill in. */
+	for (int i = 0; i < image.cols; i++) {
+		for (int j = 0; j < image.rows; j++) {
+			int idx = clusters[cols*j + i];
+			Vec3b ncolour = image.at<Vec3b>(j, i);
+
+			ncolour.val[0] = t_colours[idx][0];
+			ncolour.val[1] = t_colours[idx][1];
+			ncolour.val[2] = t_colours[idx][2];
+
+			image.at<Vec3b>(j, i) = ncolour;
+		}
+	}
+}
+
+
 int main()
 {
 	Mat image = imread("C:\\Users\\Adam\\Desktop\\samples\\completed.jpg", 1);
@@ -288,20 +268,35 @@ int main()
 	initData(image);
 	dataCopy();
 
-	int threadsToBeStarted = rows*cols + centersLength - 1;
-	int howManyBlocks = threadsToBeStarted / 700;
-	int threadsPerBlock = (threadsToBeStarted / howManyBlocks) + 1;
+	//int threadsToBeStarted = rows*cols - centersLength - 1;
+	int howManyBlocks = centersLength / 700;
+	int threadsPerBlock = (centersLength / howManyBlocks) + 1;
 
-	//for (int i = 0; i < iteration; i++)
-	//{
+	int threadsToBeStarted2 = rows*cols;
+	int howManyBlocks2 = threadsToBeStarted2 / 1000;// divisorSearcher(threadsToBeStarted2);
+	int threadsPerBlock2 = (threadsToBeStarted2 / howManyBlocks2);
+
+	printf("%i\n\n", howManyBlocks2*threadsPerBlock2);
+
+	for (int i = 0; i < iteration; i++)
+	{
 		compute << <howManyBlocks, threadsPerBlock >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
-		compute1 << <howManyBlocks, threadsPerBlock >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
-	//}
+		compute1 << <howManyBlocks2, threadsPerBlock2 >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
+
+		//cudaMemcpy(centers, d_centers, sizeof(int)*centersLength * 5, cudaMemcpyDeviceToHost);
+		//int *seged = new int[centersLength * 5];
+		//for (int i = 0; i < centersLength * 5; i++)
+		//{
+			//seged[i] = centers[i];
+		//}
+
+		compute2 << <howManyBlocks, threadsPerBlock >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
+	}
 
 	cudaMemcpy(distances, d_distances, sizeof(float)*rows*cols, cudaMemcpyDeviceToHost);
-	cudaMemcpy(clusters, d_clusters, sizeof(float)*rows*cols, cudaMemcpyDeviceToHost);
-	cudaMemcpy(centers, d_centers, sizeof(float)*centersLength * 5, cudaMemcpyDeviceToHost);
-	cudaMemcpy(center_counts, d_center_counts, sizeof(float)*centersLength, cudaMemcpyDeviceToHost);
+	cudaMemcpy(clusters, d_clusters, sizeof(int)*rows*cols, cudaMemcpyDeviceToHost);
+	cudaMemcpy(centers, d_centers, sizeof(int)*centersLength * 5, cudaMemcpyDeviceToHost);
+	cudaMemcpy(center_counts, d_center_counts, sizeof(int)*centersLength, cudaMemcpyDeviceToHost);
 
 	dataFree();
 
@@ -323,7 +318,7 @@ int main()
 	printf("%i darab elinditott szal\n", threadsPerBlock*howManyBlocks);
 	printf("%i darab clusterhez van renderve\n", b);
 	printf("%i darab nincs clusterhez renderve\n", a);
-	
+
 	int dis = 0;
 	for (int i = 0; i < rows*cols; i++)
 	{
@@ -341,9 +336,10 @@ int main()
 		//cout << center_counts[i] << endl;
 		mennyi += center_counts[i];
 	}
+	printf("%i darab pixel\n", rows*cols);
 	printf("%i mennyi\n", mennyi);
 
-	//getchar();
+
 
 	//getchar();
 	//for (int i = 0; i < rows*cols; i++)
@@ -351,12 +347,21 @@ int main()
 	//	cout << distances[i] << endl;
 	//}
 
+	//getchar();
+	//int c = 0;
 	//for (int i = 0; i < centersLength; i += 5)
 	//{
-	//	cout << centers[i] << " " << centers[i + 1] << " " << centers[i + 2] << " " << centers[i + 3] << " " << centers[i + 4] << endl;
+	//	cout << centers[i] << " " << centers[i + 1] << " " << centers[i + 2] << " " << centers[i + 3] << " " << centers[i + 4] << "  -->  " << endl;
+	//	//seged[i] << " " << seged[i + 1] << " " << seged[i + 2] << " " << seged[i + 3] << " " << seged[i + 4] << " --> " << center_counts[c++] << endl;
 	//}
 
-	printf("vege");
+
+	Mat tt = image.clone();
+	colour_with_cluster_means(image);
+	imwrite("C:\\Users\\Adam\\Desktop\\1MATsamplefilled.jpg", image);
+
+	printf("\nvege");
+
 	///* Load the image and convert to Lab colour space. */
 	//Mat image = imread("C:\\Users\\Adam\\Desktop\\samples\\completed.jpg", 1);
 	//Mat lab_image = image.clone();
