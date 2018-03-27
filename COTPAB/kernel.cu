@@ -2,7 +2,6 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
-#include <stdio.h>
 #include <opencv2\opencv.hpp>
 //#include <opencv2\cudaimgproc.hpp>
 
@@ -12,7 +11,7 @@ using namespace std;
 using namespace cv;
 
 #define nc 80 //maximum vizsgált távolság a centroidok keresésekor
-#define numberofSuperpixels 5000
+#define numberofSuperpixels 4500
 #define iteration 10
 
 
@@ -48,60 +47,67 @@ __global__ void compute(int d_cols, int d_rows, int d_step, int d_centersLength,
 {
 	int clusterIDX = blockIdx.x * blockDim.x + threadIdx.x;
 
-	for (int pixelY = d_centers[clusterIDX *pitch + 3] - (d_step*1.5); pixelY < d_centers[clusterIDX *pitch + 3] + (d_step*1.5); pixelY++)
+	if (clusterIDX < d_centersLength)
 	{
-		for (int pixelX = d_centers[clusterIDX *pitch + 4] - (d_step*1.5); pixelX < d_centers[clusterIDX *pitch + 4] + (d_step*1.5); pixelX++)
+		for (int pixelY = d_centers[clusterIDX *pitch + 3] - (d_step*1.5); pixelY < d_centers[clusterIDX *pitch + 3] + (d_step*1.5); pixelY++)
 		{
-
-			if (pixelX >= 0 && pixelX < d_rows && pixelY >= 0 && pixelY < d_cols)
+			for (int pixelX = d_centers[clusterIDX *pitch + 4] - (d_step*1.5); pixelX < d_centers[clusterIDX *pitch + 4] + (d_step*1.5); pixelX++)
 			{
-				uchar3 colour = d_colors[d_cols*pixelX + pixelY];
-
-				float distance = compute_dist(clusterIDX, pixelX, pixelY, colour, d_centers, pitch, d_step);
-				if (distance < d_distances[d_cols*pixelX + pixelY])
+				if (pixelX >= 0 && pixelX < d_rows && pixelY >= 0 && pixelY < d_cols)
 				{
-					d_distances[d_cols*pixelX + pixelY] = distance;
-					d_clusters[d_cols*pixelX + pixelY] = clusterIDX;
+					uchar3 colour = d_colors[d_rows*pixelY + pixelX];
+
+					float distance = compute_dist(clusterIDX, pixelX, pixelY, colour, d_centers, pitch, d_step);
+					if (distance < d_distances[d_rows*pixelY + pixelX])
+					{
+						d_distances[d_rows*pixelY + pixelX] = distance;
+						d_clusters[d_rows*pixelY + pixelX] = clusterIDX;
+					}
 				}
 			}
 		}
+		//a centroidok alaphelyzetbe állítása
+		d_centers[clusterIDX *pitch + 0] = 0;
+		d_centers[clusterIDX *pitch + 1] = 0;
+		d_centers[clusterIDX *pitch + 2] = 0;
+		d_centers[clusterIDX *pitch + 3] = 0;
+		d_centers[clusterIDX *pitch + 4] = 0;
+		d_center_counts[clusterIDX] = 0;
 	}
-	//a centroidok alaphelyzetbe állítása
-	d_centers[clusterIDX *pitch + 0] = 0;
-	d_centers[clusterIDX *pitch + 1] = 0;
-	d_centers[clusterIDX *pitch + 2] = 0;
-	d_centers[clusterIDX *pitch + 3] = 0;
-	d_centers[clusterIDX *pitch + 4] = 0;
-	d_center_counts[clusterIDX] = 0;
+
 }
 
 __global__ void compute1(int d_cols, int d_rows, int d_step, int d_centersLength, int *d_clusters, float *d_distances,
 	float *d_centers, int *d_center_counts, uchar3 *d_colors, int pitch)
 {
 	int idIn1D = blockIdx.x * blockDim.x + threadIdx.x;
+	if (idIn1D < d_cols*d_rows)
+	{
+		d_distances[idIn1D] = FLT_MAX;
 
-	d_distances[idIn1D] = FLT_MAX;
+		int whichCluster = d_clusters[idIn1D];
+		atomicAdd(&d_centers[whichCluster*pitch + 0], d_colors[idIn1D].x);
+		atomicAdd(&d_centers[whichCluster*pitch + 1], d_colors[idIn1D].y);
+		atomicAdd(&d_centers[whichCluster*pitch + 2], d_colors[idIn1D].z);
+		atomicAdd(&d_centers[whichCluster*pitch + 3], idIn1D / d_rows);
+		atomicAdd(&d_centers[whichCluster*pitch + 4], idIn1D % d_rows);
 
-	int whichCluster = d_clusters[idIn1D];
-	atomicAdd(&d_centers[whichCluster*pitch + 0], d_colors[idIn1D].x);
-	atomicAdd(&d_centers[whichCluster*pitch + 1], d_colors[idIn1D].y);
-	atomicAdd(&d_centers[whichCluster*pitch + 2], d_colors[idIn1D].z);
-	atomicAdd(&d_centers[whichCluster*pitch + 3], idIn1D / d_cols);
-	atomicAdd(&d_centers[whichCluster*pitch + 4], idIn1D % d_cols);
-
-	atomicAdd(&d_center_counts[whichCluster], 1);
+		atomicAdd(&d_center_counts[whichCluster], 1);
+	}
 }
 
 __global__ void compute2(int d_cols, int d_rows, int d_step, int d_centersLength, int *d_clusters, float *d_distances,
 	float *d_centers, int *d_center_counts, uchar3 *d_colors, int pitch)
 {
 	int idIn1D = blockIdx.x * blockDim.x + threadIdx.x;
-
-	d_centers[idIn1D*pitch + 0] = (int)(d_centers[idIn1D*pitch + 0] / d_center_counts[idIn1D]);
-	d_centers[idIn1D*pitch + 1] = (int)(d_centers[idIn1D*pitch + 1] / d_center_counts[idIn1D]);
-	d_centers[idIn1D*pitch + 2] = (int)(d_centers[idIn1D*pitch + 2] / d_center_counts[idIn1D]);
-	d_centers[idIn1D*pitch + 3] = (int)(d_centers[idIn1D*pitch + 3] / d_center_counts[idIn1D]);
-	d_centers[idIn1D*pitch + 4] = (int)(d_centers[idIn1D*pitch + 4] / d_center_counts[idIn1D]);
+	if (idIn1D < d_centersLength)
+	{
+		d_centers[idIn1D*pitch + 0] = (int)(d_centers[idIn1D*pitch + 0] / d_center_counts[idIn1D]);
+		d_centers[idIn1D*pitch + 1] = (int)(d_centers[idIn1D*pitch + 1] / d_center_counts[idIn1D]);
+		d_centers[idIn1D*pitch + 2] = (int)(d_centers[idIn1D*pitch + 2] / d_center_counts[idIn1D]);
+		d_centers[idIn1D*pitch + 3] = (int)(d_centers[idIn1D*pitch + 3] / d_center_counts[idIn1D]);
+		d_centers[idIn1D*pitch + 4] = (int)(d_centers[idIn1D*pitch + 4] / d_center_counts[idIn1D]);
+	}
 }
 
 
@@ -222,7 +228,7 @@ void colour_with_cluster_means(Mat image) {
 	/* Gather the colour values per cluster. */
 	for (int i = 0; i < image.cols; i++) {
 		for (int j = 0; j < image.rows; j++) {
-			int index = clusters[cols*j + i];
+			int index = clusters[i*image.rows + j];
 			Vec3b colour = image.at<Vec3b>(j, i);
 
 			t_colours[index][0] += colour.val[0];
@@ -244,7 +250,7 @@ void colour_with_cluster_means(Mat image) {
 	/* Fill in. */
 	for (int i = 0; i < image.cols; i++) {
 		for (int j = 0; j < image.rows; j++) {
-			int idx = clusters[cols*j + i];
+			int idx = clusters[i*image.rows + j];
 			Vec3b ncolour = image.at<Vec3b>(j, i);
 
 			ncolour.val[0] = t_colours[idx][0];
@@ -256,6 +262,53 @@ void colour_with_cluster_means(Mat image) {
 	}
 }
 
+void display_contours(Mat image, Vec3b colour) {
+	cout << "Display contours" << endl;
+
+	const int dx8[8] = { -1, -1,  0,  1, 1, 1, 0, -1 };
+	const int dy8[8] = { 0, -1, -1, -1, 0, 1, 1,  1 };
+
+	/* Initialize the contour vector and the matrix detailing whether a pixel
+	* is already taken to be a contour. */
+	vector<Point> contours;
+	vector<vector<bool> > istaken;
+	for (int i = 0; i < image.cols; i++) {
+		vector<bool> nb;
+		for (int j = 0; j < image.rows; j++) {
+			nb.push_back(false);
+		}
+		istaken.push_back(nb);
+	}
+
+	/* Go through all the pixels. */
+	for (int i = 0; i < image.cols; i++) {
+		for (int j = 0; j < image.rows; j++) {
+			int nr_p = 0;
+
+			/* Compare the pixel to its 8 neighbours. */
+			for (int k = 0; k < 8; k++) {
+				int x = i + dx8[k], y = j + dy8[k];
+
+				if (x >= 0 && x < image.cols && y >= 0 && y < image.rows) {
+					if (istaken[x][y] == false && clusters[i*image.rows + j] != clusters[x*image.rows + y]) {
+						nr_p += 1;
+					}
+				}
+			}
+
+			/* Add the pixel to the contour list if desired. */
+			if (nr_p >= 2) {
+				contours.push_back(Point(i, j));
+				istaken[i][j] = true;
+			}
+		}
+	}
+
+	/* Draw the contour pixels. */
+	for (int i = 0; i < (int)contours.size(); i++) {
+		image.at<Vec3b>(contours[i].y, contours[i].x) = colour;
+	}
+}
 
 int main()
 {
@@ -276,20 +329,10 @@ int main()
 	int howManyBlocks2 = threadsToBeStarted2 / 1000;// divisorSearcher(threadsToBeStarted2);
 	int threadsPerBlock2 = (threadsToBeStarted2 / howManyBlocks2);
 
-	printf("%i\n\n", howManyBlocks2*threadsPerBlock2);
-
-	for (int i = 0; i < iteration; i++)
+	for (int i = 0; i < 10; i++)
 	{
 		compute << <howManyBlocks, threadsPerBlock >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
 		compute1 << <howManyBlocks2, threadsPerBlock2 >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
-
-		//cudaMemcpy(centers, d_centers, sizeof(int)*centersLength * 5, cudaMemcpyDeviceToHost);
-		//int *seged = new int[centersLength * 5];
-		//for (int i = 0; i < centersLength * 5; i++)
-		//{
-			//seged[i] = centers[i];
-		//}
-
 		compute2 << <howManyBlocks, threadsPerBlock >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
 	}
 
@@ -300,14 +343,16 @@ int main()
 
 	dataFree();
 
+	//ofstream myfile;
+	//myfile.open("centersAfterDiv.txt");
+	//for (int j = 0; j < (int)centersLength; j++)
+	//{
+	//	myfile << j << " " << centers[j * 5] << " " << centers[j * 5 + 1] << " " << centers[j * 5 + 2] << " " << centers[j * 5 + 3] << " " << centers[j * 5 + 4] << " " << endl;
+	//}
+	//myfile.close();
+
 	int a = 0;
-	for (int i = 0; i < rows*cols; i++)
-	{
-		if (clusters[i] == -1)
-		{
-			a++;
-		}
-	}
+	for (int i = 0; i < rows*cols; i++) { if (clusters[i] == -1) { a++; } }
 	int b = rows*cols - a;
 
 	printf("%i steps\n", step);
@@ -320,26 +365,22 @@ int main()
 	printf("%i darab nincs clusterhez renderve\n", a);
 
 	int dis = 0;
-	for (int i = 0; i < rows*cols; i++)
-	{
-		if (distances[i] == FLT_MAX)
-		{
-			dis++;
-		}
-	}
+	for (int i = 0; i < rows*cols; i++) { if (distances[i] == FLT_MAX) { dis++; } }
 	printf("%i dis\n", dis);
 
 
 	int mennyi = 0;
-	for (int i = 0; i < centersLength; i++)
-	{
-		//cout << center_counts[i] << endl;
-		mennyi += center_counts[i];
-	}
+	for (int i = 0; i < centersLength; i++) { mennyi += center_counts[i]; }
 	printf("%i darab pixel\n", rows*cols);
 	printf("%i mennyi\n", mennyi);
 
+	//Mat cont = image.clone();
+	//display_contours(cont, Vec3b(0, 0, 255));
+	//imwrite("C:\\Users\\Adam\\Desktop\\000Cont.jpg", cont);
 
+	Mat cwtm = image.clone();
+	colour_with_cluster_means(cwtm);
+	imwrite("C:\\Users\\Adam\\Desktop\\001Fill.jpg", cwtm);
 
 	//getchar();
 	//for (int i = 0; i < rows*cols; i++)
@@ -356,9 +397,6 @@ int main()
 	//}
 
 
-	Mat tt = image.clone();
-	colour_with_cluster_means(image);
-	imwrite("C:\\Users\\Adam\\Desktop\\1MATsamplefilled.jpg", image);
 
 	printf("\nvege");
 
