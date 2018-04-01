@@ -1,11 +1,6 @@
-
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-
 #include <opencv2\opencv.hpp>
-//#include <opencv2\cudaimgproc.hpp>
-
-#include "slic.h"
 
 using namespace std;
 using namespace cv;
@@ -14,22 +9,27 @@ using namespace cv;
 #define numberofSuperpixels 4500
 #define iteration 10
 
-
 int cols;
 int rows;
 int step;
 int centersLength;
+int centersRowPieces;
+int centersColPieces; // tolás a neighborshoz
 int *clusters;
 float *distances;
 float *centers;
 int *center_counts;
 uchar3 *colors;
+float *pixelColorsWithClusterMeanColor;
+int *neighbors;
 
-__device__ int *d_clusters;			//1D --> cols * rows
-__device__ float *d_distances;		//1D --> cols * rows
-__device__ float *d_centers;		//1D --> centersLength * 5
-__device__ int *d_center_counts;	//1D --> centersLength
-__device__ uchar3 *d_colors;		//1D --> cols * rows
+__device__ int *d_clusters;								//cols * rows
+__device__ float *d_distances;							//cols * rows
+__device__ float *d_centers;							//centersLength * 5
+__device__ int *d_center_counts;						//centersLength
+__device__ uchar3 *d_colors;							//cols * rows
+__device__ float * d_pixelColorsWithClusterMeanColor;	//cols * rows * 3
+__device__ int *d_neighbors;								//centerlength * 8
 
 __device__ float compute_dist(int ci, int y, int x, uchar3 colour, float *d_centers, int pitch, int d_step)
 {
@@ -56,7 +56,6 @@ __global__ void compute(int d_cols, int d_rows, int d_step, int d_centersLength,
 				if (pixelX >= 0 && pixelX < d_rows && pixelY >= 0 && pixelY < d_cols)
 				{
 					uchar3 colour = d_colors[d_rows*pixelY + pixelX];
-
 					float distance = compute_dist(clusterIDX, pixelX, pixelY, colour, d_centers, pitch, d_step);
 					if (distance < d_distances[d_rows*pixelY + pixelX])
 					{
@@ -77,7 +76,7 @@ __global__ void compute(int d_cols, int d_rows, int d_step, int d_centersLength,
 
 }
 
-__global__ void compute1(int d_cols, int d_rows, int d_step, int d_centersLength, int *d_clusters, float *d_distances,
+__global__ void compute1(int d_cols, int d_rows, int *d_clusters, float *d_distances,
 	float *d_centers, int *d_center_counts, uchar3 *d_colors, int pitch)
 {
 	int idIn1D = blockIdx.x * blockDim.x + threadIdx.x;
@@ -96,8 +95,7 @@ __global__ void compute1(int d_cols, int d_rows, int d_step, int d_centersLength
 	}
 }
 
-__global__ void compute2(int d_cols, int d_rows, int d_step, int d_centersLength, int *d_clusters, float *d_distances,
-	float *d_centers, int *d_center_counts, uchar3 *d_colors, int pitch)
+__global__ void compute2(int d_centersLength, float *d_centers, int *d_center_counts, int pitch)
 {
 	int idIn1D = blockIdx.x * blockDim.x + threadIdx.x;
 	if (idIn1D < d_centersLength)
@@ -110,19 +108,77 @@ __global__ void compute2(int d_cols, int d_rows, int d_step, int d_centersLength
 	}
 }
 
+__global__ void compute3(int d_cols, int d_rows, int *d_clusters, float *d_pixelColorsWithClusterMeanColor, float*d_centers)
+{
+	int idIn1D = blockIdx.x * blockDim.x + threadIdx.x;
+	if (idIn1D < d_cols*d_rows)
+	{
+		d_pixelColorsWithClusterMeanColor[idIn1D * 3 + 0] = d_centers[d_clusters[idIn1D] * 5 + 0];
+		d_pixelColorsWithClusterMeanColor[idIn1D * 3 + 1] = d_centers[d_clusters[idIn1D] * 5 + 1];
+		d_pixelColorsWithClusterMeanColor[idIn1D * 3 + 2] = d_centers[d_clusters[idIn1D] * 5 + 2];
+	}
+}
+
+int distance(uchar3 actuallPixel, uchar3 neighborPixel)
+{
+	return 5;
+}
+
+void neighborMerge()
+{
+	const int dx8[8] = { -1, -1,  0,  1, 1, 1, 0, -1 };
+	const int dy8[8] = { 0, -1, -1, -1, 0, 1, 1,  1 };
+
+	for (int i = 0; i < centersLength; i++)
+	{
+		uchar3 actuallCluster;
+		actuallCluster.x = centers[i * 5];
+		actuallCluster.y = centers[i * 5 + 1];
+		actuallCluster.z = centers[i * 5 + 2];
+		int clusterRow = i / centersRowPieces;
+		int clusterCol = i % centersRowPieces;
+
+		for (int j = 0; j < 8; j++)
+		{
+			if (clusterCol + dy8[j] >= 0 && clusterCol + dy8[j] < centersColPieces
+				&& clusterRow + dx8[j] >= 0 && clusterRow + dx8[j] < centersRowPieces)
+			{
+				uchar3 neighborPixel;
+				int a = (centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j]));
+				neighborPixel.x = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 0];
+				neighborPixel.y = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 1];
+				neighborPixel.z = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 2];
+
+				if (distance(actuallCluster, neighborPixel) < 50)
+				{
+					neighbors[(centersColPieces * clusterCol + clusterRow) + j] = centersColPieces * (clusterCol + dy8[j]) + (clusterRow + dx8[j]);
+				}
+			}
+
+		}
+	}
+}
 
 void initData(Mat image)
 {
+	neighbors = new int[centersLength * 8];
+
 	clusters = new int[cols*rows];
 	distances = new float[cols*rows];
+	pixelColorsWithClusterMeanColor = new float[cols*rows * 3];
 	for (int i = 0; i < cols*rows; i++)
 	{
 		clusters[i] = -1;
 		distances[i] = FLT_MAX;
+		pixelColorsWithClusterMeanColor[i * 3 + 0] = 0;
+		pixelColorsWithClusterMeanColor[i * 3 + 1] = 0;
+		pixelColorsWithClusterMeanColor[i * 3 + 2] = 0;
 	}
 
-	//Ez azért kell mert elõre nem tudom, hogy hány eleme lesz a centers-nek, ezért elõször egy vectorhoz adomgatom hozzá az elemeket
+	//Ez azért kell mert elõre nem tudom, hogy hány eleme lesz a centers-nek, ezért elõször egy vectorhoz adogatom hozzá az elemeket
 	// majd késõbb létrehozom a tömböt annyi elemmel, ahány eleme van a segédvectornak, majd átmásolom az adatokat.
+	centersColPieces = 0;
+	centersRowPieces = 0;
 	vector<vector<float> > h_centers;
 	for (int i = step; i < cols - step / 2; i += step) {
 		for (int j = step; j < rows - step / 2; j += step) {
@@ -139,12 +195,15 @@ void initData(Mat image)
 
 			h_centers.push_back(center);
 		}
+		centersColPieces++;
 	}
 
 	centersLength = h_centers.size();
+	centersRowPieces = centersLength / centersColPieces;
 
 	centers = new float[centersLength * 5];
 	center_counts = new int[centersLength];
+
 	int idx = 0;
 	for (int i = 0; i < centersLength; i++)
 	{
@@ -187,6 +246,8 @@ void dataCopy()
 	cudaMemcpy(d_center_counts, center_counts, sizeof(int)*centersLength, cudaMemcpyHostToDevice);
 	cudaMalloc((void**)&d_colors, sizeof(uchar3)*rows*cols);
 	cudaMemcpy(d_colors, colors, sizeof(uchar3)*rows*cols, cudaMemcpyHostToDevice);
+	cudaMalloc((void**)&d_pixelColorsWithClusterMeanColor, sizeof(float)*cols * rows * 3);
+	cudaMemcpy(d_pixelColorsWithClusterMeanColor, pixelColorsWithClusterMeanColor, sizeof(float)*cols * rows * 3, cudaMemcpyHostToDevice);
 }
 
 void dataFree()
@@ -196,66 +257,21 @@ void dataFree()
 	cudaFree(d_centers);
 	cudaFree(d_center_counts);
 	cudaFree(d_colors);
-}
-
-int divisorSearcher(int threadsToBeStarted)
-{
-	int i = 500;
-	bool divisor = false;
-	while (!divisor && i <= 1000)
-	{
-		if (threadsToBeStarted % i == 0)
-		{
-			divisor = true;
-		}
-		i++;
-	}
-	printf("%i osztoja %i-nek\n", i - 1, threadsToBeStarted);
-	return i - 1;
+	cudaFree(d_pixelColorsWithClusterMeanColor);
 }
 
 void colour_with_cluster_means(Mat image) {
-	cout << "FILL" << endl;//----------------------------------------------------------------------
+	cout << "FILL" << endl;
 
-	vector<vector<int>> t_colours(centersLength);
-	for (int i = 0; i < t_colours.size(); i++)
+	for (int i = 0; i < image.cols; i++)
 	{
-		t_colours[i].push_back(0);
-		t_colours[i].push_back(0);
-		t_colours[i].push_back(0);
-	}
-
-	/* Gather the colour values per cluster. */
-	for (int i = 0; i < image.cols; i++) {
-		for (int j = 0; j < image.rows; j++) {
-			int index = clusters[i*image.rows + j];
-			Vec3b colour = image.at<Vec3b>(j, i);
-
-			t_colours[index][0] += colour.val[0];
-			t_colours[index][1] += colour.val[1];
-			t_colours[index][2] += colour.val[2];
-		}
-	}
-
-	/* Divide by the number of pixels per cluster to get the mean colour. */
-	for (int i = 0; i < (int)t_colours.size(); i++) {
-		if (center_counts[i] != 0)
+		for (int j = 0; j < image.rows; j++)
 		{
-			t_colours[i][0] /= center_counts[i];
-			t_colours[i][1] /= center_counts[i];
-			t_colours[i][2] /= center_counts[i];
-		}
-	}
+			Vec3b ncolour = Vec3b();
 
-	/* Fill in. */
-	for (int i = 0; i < image.cols; i++) {
-		for (int j = 0; j < image.rows; j++) {
-			int idx = clusters[i*image.rows + j];
-			Vec3b ncolour = image.at<Vec3b>(j, i);
-
-			ncolour.val[0] = t_colours[idx][0];
-			ncolour.val[1] = t_colours[idx][1];
-			ncolour.val[2] = t_colours[idx][2];
+			ncolour.val[0] = pixelColorsWithClusterMeanColor[(i*image.rows + j) * 3 + 0];
+			ncolour.val[1] = pixelColorsWithClusterMeanColor[(i*image.rows + j) * 3 + 1];
+			ncolour.val[2] = pixelColorsWithClusterMeanColor[(i*image.rows + j) * 3 + 2];
 
 			image.at<Vec3b>(j, i) = ncolour;
 		}
@@ -312,49 +328,60 @@ void display_contours(Mat image, Vec3b colour) {
 
 int main()
 {
-	Mat image = imread("C:\\Users\\Adam\\Desktop\\samples\\completed.jpg", 1);
+
+	string readPath = "C:\\Users\\Adam\\Desktop\\samples\\completed.jpg";
+	string writePath = "C:\\Users\\Adam\\Desktop\\xmen.jpg";
+	Mat image = imread(readPath, 1);
 	cols = image.cols;
 	rows = image.rows;
 
 	step = (sqrt((cols * rows) / (double)numberofSuperpixels));
 
 	initData(image);
-	dataCopy();
+	//dataCopy();
 
-	//int threadsToBeStarted = rows*cols - centersLength - 1;
 	int howManyBlocks = centersLength / 700;
 	int threadsPerBlock = (centersLength / howManyBlocks) + 1;
 
 	int threadsToBeStarted2 = rows*cols;
-	int howManyBlocks2 = threadsToBeStarted2 / 1000;// divisorSearcher(threadsToBeStarted2);
-	int threadsPerBlock2 = (threadsToBeStarted2 / howManyBlocks2);
-
-	for (int i = 0; i < 10; i++)
+	int howManyBlocks2 = threadsToBeStarted2 / 700;
+	int threadsPerBlock2 = (threadsToBeStarted2 / howManyBlocks2) + 1;
+	for (int i = 0; i < 1; i++)
 	{
+		dataCopy();
 		compute << <howManyBlocks, threadsPerBlock >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
-		compute1 << <howManyBlocks2, threadsPerBlock2 >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
-		compute2 << <howManyBlocks, threadsPerBlock >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
+		compute1 << <howManyBlocks2, threadsPerBlock2 >> > (cols, rows, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
+		compute2 << <howManyBlocks, threadsPerBlock >> > (centersLength, d_centers, d_center_counts, 5);
+
+		cudaMemcpy(distances, d_distances, sizeof(float)*rows*cols, cudaMemcpyDeviceToHost);
+		cudaMemcpy(clusters, d_clusters, sizeof(int)*rows*cols, cudaMemcpyDeviceToHost);
+		cudaMemcpy(centers, d_centers, sizeof(int)*centersLength * 5, cudaMemcpyDeviceToHost);
+		cudaMemcpy(center_counts, d_center_counts, sizeof(int)*centersLength, cudaMemcpyDeviceToHost);
+
+		dataFree();
 	}
 
-	cudaMemcpy(distances, d_distances, sizeof(float)*rows*cols, cudaMemcpyDeviceToHost);
-	cudaMemcpy(clusters, d_clusters, sizeof(int)*rows*cols, cudaMemcpyDeviceToHost);
-	cudaMemcpy(centers, d_centers, sizeof(int)*centersLength * 5, cudaMemcpyDeviceToHost);
-	cudaMemcpy(center_counts, d_center_counts, sizeof(int)*centersLength, cudaMemcpyDeviceToHost);
+	dataCopy();
+
+	compute3 << <howManyBlocks2, threadsPerBlock2 >> > (cols, rows, d_clusters, d_pixelColorsWithClusterMeanColor, d_centers);
+
+	cudaMemcpy(pixelColorsWithClusterMeanColor, d_pixelColorsWithClusterMeanColor, sizeof(float)*rows*cols * 3, cudaMemcpyDeviceToHost);
 
 	dataFree();
 
-	//ofstream myfile;
-	//myfile.open("centersAfterDiv.txt");
-	//for (int j = 0; j < (int)centersLength; j++)
+	//ofstream myfile2;
+	//myfile2.open("2.txt");
+	//for (int i = 0; i < centersLength; i++)
 	//{
-	//	myfile << j << " " << centers[j * 5] << " " << centers[j * 5 + 1] << " " << centers[j * 5 + 2] << " " << centers[j * 5 + 3] << " " << centers[j * 5 + 4] << " " << endl;
+	//	myfile2 << centers[i * 5 + 0] << " " << centers[i * 5 + 1] << " " << centers[i * 5 + 2] << " " << endl;
 	//}
-	//myfile.close();
+	//myfile2.close();
 
 	int a = 0;
 	for (int i = 0; i < rows*cols; i++) { if (clusters[i] == -1) { a++; } }
 	int b = rows*cols - a;
 
+	printf("%i elinditott szal\n", threadsPerBlock2*howManyBlocks2);
 	printf("%i steps\n", step);
 	printf("%i rows\n", rows);
 	printf("%i cols\n", cols);
@@ -378,9 +405,18 @@ int main()
 	//display_contours(cont, Vec3b(0, 0, 255));
 	//imwrite("C:\\Users\\Adam\\Desktop\\000Cont.jpg", cont);
 
+	neighborMerge();
+
+	for (int i = 0; i < 800; i++)
+	{
+		printf("%i ", neighbors[i]);
+		if (i %8==0)
+			printf("\n");
+	}
+
 	Mat cwtm = image.clone();
 	colour_with_cluster_means(cwtm);
-	imwrite("C:\\Users\\Adam\\Desktop\\001Fill.jpg", cwtm);
+	imwrite(writePath, cwtm);
 
 	//getchar();
 	//for (int i = 0; i < rows*cols; i++)
@@ -398,7 +434,7 @@ int main()
 
 
 
-	printf("\nvege");
+	printf("vege");
 
 	///* Load the image and convert to Lab colour space. */
 	//Mat image = imread("C:\\Users\\Adam\\Desktop\\samples\\completed.jpg", 1);
