@@ -144,25 +144,22 @@ void neighborMerge()
 				&& clusterRow + dx8[j] >= 0 && clusterRow + dx8[j] < centersRowPieces)
 			{
 				uchar3 neighborPixel;
-				int a = (centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j]));
+				//int a = (centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j]));
 				neighborPixel.x = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 0];
 				neighborPixel.y = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 1];
 				neighborPixel.z = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 2];
 
 				if (distance(actuallCluster, neighborPixel) < 50)
 				{
-					neighbors[(centersColPieces * clusterCol + clusterRow) + j] = centersColPieces * (clusterCol + dy8[j]) + (clusterRow + dx8[j]);
+					neighbors[(centersColPieces * clusterCol + clusterRow) * 8 + j] = centersColPieces * (clusterCol + dy8[j]) + (clusterRow + dx8[j]);
 				}
 			}
-
 		}
 	}
 }
 
 void initData(Mat image)
 {
-	neighbors = new int[centersLength * 8];
-
 	clusters = new int[cols*rows];
 	distances = new float[cols*rows];
 	pixelColorsWithClusterMeanColor = new float[cols*rows * 3];
@@ -203,6 +200,7 @@ void initData(Mat image)
 
 	centers = new float[centersLength * 5];
 	center_counts = new int[centersLength];
+	neighbors = new int[centersLength * 8];
 
 	int idx = 0;
 	for (int i = 0; i < centersLength; i++)
@@ -211,6 +209,10 @@ void initData(Mat image)
 		{
 			centers[idx] = h_centers[i][j];
 			idx++;
+		}
+		for (int j = 0; j < 8; j++)
+		{
+			neighbors[i * 8 + j] = -1;
 		}
 		center_counts[i] = 0;
 	}
@@ -407,16 +409,15 @@ int main()
 
 	neighborMerge();
 
-	for (int i = 0; i < 800; i++)
+	for (int i = 0; i < 800; i+=8)
 	{
-		printf("%i ", neighbors[i]);
-		if (i %8==0)
-			printf("\n");
+		cout << neighbors[i + 0] << " " << neighbors[i + 1] << " " << neighbors[i + 2] << " " << neighbors[i + 3] << " " <<
+			neighbors[i + 4] << " " << neighbors[i + 5] << " " << neighbors[i + 6] << " " << neighbors[i + 7] << " " << endl;
 	}
 
-	Mat cwtm = image.clone();
-	colour_with_cluster_means(cwtm);
-	imwrite(writePath, cwtm);
+	//Mat cwtm = image.clone();
+	//colour_with_cluster_means(cwtm);
+	//imwrite(writePath, cwtm);
 
 	//getchar();
 	//for (int i = 0; i < rows*cols; i++)
