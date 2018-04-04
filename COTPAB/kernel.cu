@@ -8,6 +8,8 @@ using namespace cv;
 #define nc 80 //maximum vizsgált távolság a centroidok keresésekor
 #define numberofSuperpixels 4500
 #define iteration 10
+#define maxColorDistance 15
+#define numberOfNeighbors 8
 
 int cols;
 int rows;
@@ -119,15 +121,52 @@ __global__ void compute3(int d_cols, int d_rows, int *d_clusters, float *d_pixel
 	}
 }
 
-int distance(uchar3 actuallPixel, uchar3 neighborPixel)
+float colorDistance(uchar3 actuallPixel, uchar3 neighborPixel)
 {
-	return 5;
+	float dc = sqrt(pow(actuallPixel.x - neighborPixel.x, 2) + pow(actuallPixel.y - neighborPixel.y, 2)
+		+ pow(actuallPixel.z - neighborPixel.z, 2));
+	return dc;
+}
+
+vector<int3> distinctClusterColors()
+{
+	vector<int3>distinctClusterColors;
+	int howManyDistinctColorYet = 0;
+	for (int i = 0; i < centersLength; i++)
+	{
+		bool unique = true;
+		for (int j = 0; j < howManyDistinctColorYet; j++)
+		{
+			if (centers[i * 5 + 0] == distinctClusterColors[j].x && centers[i * 5 + 1] == distinctClusterColors[j].y &&
+				centers[i * 5 + 2] == distinctClusterColors[j].z)
+			{
+				unique = false;
+			}
+		}
+		if (unique)
+		{
+			int3 uniqueColor;
+			uniqueColor.x = centers[i * 5 + 0];
+			uniqueColor.y = centers[i * 5 + 1];
+			uniqueColor.z = centers[i * 5 + 2];
+			distinctClusterColors.push_back(uniqueColor);
+			howManyDistinctColorYet++;
+		}
+	}
+	return distinctClusterColors;
+}
+
+void pixelAsigneToTheClusterColors()
+{
+	vector<int3> k = distinctClusterColors();
+
+	int a = k.size();
 }
 
 void neighborMerge()
 {
-	const int dx8[8] = { -1, -1,  0,  1, 1, 1, 0, -1 };
-	const int dy8[8] = { 0, -1, -1, -1, 0, 1, 1,  1 };
+	const int dx8[numberOfNeighbors] = { -1, -1,  0,  1, 1, 1, 0, -1 };
+	const int dy8[numberOfNeighbors] = { 0, -1, -1, -1, 0, 1, 1,  1 };
 
 	for (int i = 0; i < centersLength; i++)
 	{
@@ -135,27 +174,101 @@ void neighborMerge()
 		actuallCluster.x = centers[i * 5];
 		actuallCluster.y = centers[i * 5 + 1];
 		actuallCluster.z = centers[i * 5 + 2];
+
 		int clusterRow = i / centersRowPieces;
 		int clusterCol = i % centersRowPieces;
 
-		for (int j = 0; j < 8; j++)
+		for (int j = 0; j < numberOfNeighbors; j++)
 		{
 			if (clusterCol + dy8[j] >= 0 && clusterCol + dy8[j] < centersColPieces
 				&& clusterRow + dx8[j] >= 0 && clusterRow + dx8[j] < centersRowPieces)
 			{
 				uchar3 neighborPixel;
-				//int a = (centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j]));
-				neighborPixel.x = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 0];
+				/*neighborPixel.x = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 0];
 				neighborPixel.y = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 1];
 				neighborPixel.z = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 2];
+				int a = (centersColPieces * clusterCol + clusterRow);
+				int b = (centersColPieces * clusterCol + clusterRow) * 8 + j;
+				int c = centersColPieces * (clusterCol + dy8[j]) + (clusterRow + dx8[j]);*/
 
-				if (distance(actuallCluster, neighborPixel) < 50)
+				neighborPixel.x = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j])) * 5 + 0];
+				neighborPixel.y = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j])) * 5 + 1];
+				neighborPixel.z = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j])) * 5 + 2];
+
+				int a2 = (centersRowPieces * clusterRow + clusterCol);
+				int b2 = (centersRowPieces * clusterRow + clusterCol) * numberOfNeighbors + j;
+				int c2 = centersRowPieces * (clusterRow + dx8[j]) + (clusterCol + dy8[j]);
+
+				if (centersRowPieces * clusterRow + clusterCol < centersRowPieces * (clusterRow + dx8[j]) + (clusterCol + dy8[j]) &&
+					colorDistance(actuallCluster, neighborPixel) < maxColorDistance)
 				{
-					neighbors[(centersColPieces * clusterCol + clusterRow) * 8 + j] = centersColPieces * (clusterCol + dy8[j]) + (clusterRow + dx8[j]);
+					neighbors[(centersRowPieces * clusterRow + clusterCol) * numberOfNeighbors + j] = centersRowPieces * (clusterRow + dx8[j]) + (clusterCol + dy8[j]);
 				}
 			}
 		}
 	}
+
+	int2 *changes = new int2[centersLength];
+	for (int i = 0; i < centersLength; i++)
+	{
+		changes[i].x = i;
+		changes[i].y = -1;
+	}
+
+	for (int i = 0; i < centersLength; i++)
+	{
+		for (int j = 0; j < numberOfNeighbors; j++)
+		{
+			int cluster = neighbors[i * numberOfNeighbors + j];
+			if (cluster != -1)
+			{
+				int neighborIDX = changes[cluster].y;
+				int clusterIDX = i;
+				while (neighborIDX != -1)
+				{
+					//int k = changes[neighborIDX].x;
+					neighborIDX = changes[neighborIDX].y;
+					if (neighborIDX != -1)
+						clusterIDX = changes[neighborIDX].x;
+				}
+				if (changes[clusterIDX].y != -1)
+					changes[cluster].y = changes[clusterIDX].y;
+				else
+					changes[cluster].y = clusterIDX;
+			}
+		}
+	}
+
+	for (int i = 0; i < centersLength; i++)
+	{
+		cout << changes[i].x << "\t" << changes[i].y << "\t" << neighbors[i * 8 + 0] << "\t" << neighbors[i * 8 + 1] << "\t" << neighbors[i * 8 + 2] << "\t"
+			<< neighbors[i * 8 + 3] << "\t" << neighbors[i * 8 + 4] << "\t" << neighbors[i * 8 + 5] << "\t" << neighbors[i * 8 + 6]	<< "\t" << neighbors[i * 8 + 7] << endl;
+	}
+
+	//nem lesz centerslenght méretû, de ebben elfér minden
+	//int2 *changes= new int2[centersLength];
+	//int changesIDX = 0;
+	//for (int i = 0; i < centersLength; i++)
+	//{
+	//	for (int j = 0; j < 8; j++)
+	//	{
+	//		int neighborIDX = neighbors[i * 8 + j];
+	//		if (neighborIDX != -1)
+	//		{
+	//			int2 actualChange;
+	//			actualChange.x = i;
+	//			actualChange.y = neighborIDX;
+	//			changes[changesIDX++] = actualChange;
+	//			if (j < 4)
+	//				neighbors[neighborIDX * 8 + j + 4] = -1;
+	//			else
+	//				neighbors[neighborIDX * 8 + j - 4] = -1;
+	//		}
+	//	}
+	//}
+	//for (int i = 0; i < changesIDX; i++)
+	//{
+	//}
 }
 
 void initData(Mat image)
@@ -200,7 +313,7 @@ void initData(Mat image)
 
 	centers = new float[centersLength * 5];
 	center_counts = new int[centersLength];
-	neighbors = new int[centersLength * 8];
+	neighbors = new int[centersLength * numberOfNeighbors];
 
 	int idx = 0;
 	for (int i = 0; i < centersLength; i++)
@@ -210,9 +323,9 @@ void initData(Mat image)
 			centers[idx] = h_centers[i][j];
 			idx++;
 		}
-		for (int j = 0; j < 8; j++)
+		for (int j = 0; j < numberOfNeighbors; j++)
 		{
-			neighbors[i * 8 + j] = -1;
+			neighbors[i * numberOfNeighbors + j] = -1;
 		}
 		center_counts[i] = 0;
 	}
@@ -409,11 +522,11 @@ int main()
 
 	neighborMerge();
 
-	for (int i = 0; i < 800; i+=8)
-	{
-		cout << neighbors[i + 0] << " " << neighbors[i + 1] << " " << neighbors[i + 2] << " " << neighbors[i + 3] << " " <<
-			neighbors[i + 4] << " " << neighbors[i + 5] << " " << neighbors[i + 6] << " " << neighbors[i + 7] << " " << endl;
-	}
+	//for (int i = 0; i < centersLength; i += 8)
+	//{
+	//	cout << i / 8 << "\t" << neighbors[i + 0].x << " " << neighbors[i + 1].x << " " << neighbors[i + 2].x << " " << neighbors[i + 3].x << " " <<
+	//		neighbors[i + 4].x << " " << neighbors[i + 5].x << " " << neighbors[i + 6].x << " " << neighbors[i + 7].x << " " << endl;
+	//}
 
 	//Mat cwtm = image.clone();
 	//colour_with_cluster_means(cwtm);
