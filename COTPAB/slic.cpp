@@ -74,6 +74,16 @@ void Slic::init_data(Mat image) {
 		centersColPieces++;
 	}
 	centersRowPieces = centers.size() / centersColPieces;
+
+	for (int i = 0; i < centers.size(); i++)
+	{
+		vector<int> neighbor;
+		for (int j = 0; j < numberOfNeighbors; j++)
+		{
+			neighbor.push_back(-1);
+		}
+		neighbors.push_back(neighbor);
+	}
 }
 
 /*
@@ -405,6 +415,13 @@ void Slic::neighborMerge()
 
 	for (int i = 0; i < (int)centers.size(); i++)
 	{
+		if (i ==0)
+		{
+			printf("merge 0\n");
+		}
+
+
+
 		Vec3b actuallCluster;
 		actuallCluster.val[0] = centers[i][0];
 		actuallCluster.val[1] = centers[i][1];
@@ -415,9 +432,19 @@ void Slic::neighborMerge()
 
 		for (int j = 0; j < numberOfNeighbors; j++)
 		{
+			if (i == 0 && j == 0)
+			{
+				printf("merge 1\n");
+			}
+
+
+
 			if (clusterCol + dy8[j] >= 0 && clusterCol + dy8[j] < centersColPieces
 				&& clusterRow + dx8[j] >= 0 && clusterRow + dx8[j] < centersRowPieces)
 			{
+				int aa1 = clusterCol + dy8[j];
+				int aa2 = clusterRow + dx8[j];
+
 				Vec3b neighborPixel;
 				neighborPixel.val[0] = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j]))][0];
 				neighborPixel.val[1] = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j]))][1];
@@ -436,6 +463,9 @@ void Slic::neighborMerge()
 		}
 	}
 
+	printf("merge before ini\n");
+
+
 	Vec2b *changes = new Vec2b[(int)centers.size()];
 	for (int i = 0; i < (int)centers.size(); i++)
 	{
@@ -443,10 +473,26 @@ void Slic::neighborMerge()
 		changes[i].val[1] = -1;
 	}
 
+	
+	printf("merge ini");
+
+
+
 	for (int i = 0; i < (int)centers.size(); i++)
 	{
 		for (int j = 0; j < numberOfNeighbors; j++)
 		{
+
+
+
+			if (i == 0 && j == 0)
+			{
+				printf("merge 2");
+			}
+
+
+
+
 			int cluster = neighbors[i][j];
 			if (cluster != -1)
 			{
@@ -454,7 +500,6 @@ void Slic::neighborMerge()
 				int clusterIDX = i;
 				while (neighborIDX != -1)
 				{
-					//int k = changes[neighborIDX].x;
 					neighborIDX = changes[neighborIDX].val[1];
 					if (neighborIDX != -1)
 						clusterIDX = changes[neighborIDX].val[0];
@@ -464,6 +509,17 @@ void Slic::neighborMerge()
 				else
 					changes[cluster].val[1] = clusterIDX;
 			}
+
+
+
+
+			if (i == 0 && j == 0)
+			{
+				printf("merge 3");
+			}
+
+
+
 		}
 	}
 
@@ -471,11 +527,15 @@ void Slic::neighborMerge()
 	{
 		for (int j = 0; j < rows; j++)
 		{
+			if (i == 0 && j == 0)
+			{
+				printf("merge 4");
+			}
+
 			if (changes[clusters[i][j]].val[1] != -1)
 			{
 				clusters[i][j] = changes[clusters[i][j]].val[1];
 			}
 		}
 	}
-
 }
