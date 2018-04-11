@@ -22,12 +22,11 @@
 using namespace std;
 using namespace cv;
 
-/* 2d matrices are handled by 2d vectors. */
-#define vec2dd vector<vector<double> >
-#define vec2di vector<vector<int> >
-#define vec2db vector<vector<bool> >
 /* The number of iterations run by the clustering algorithm. */
 #define NR_ITERATIONS 10
+#define numberOfNeighbors 8
+#define maxColorDistance 39//15
+
 
 /*
 * class Slic.
@@ -39,17 +38,24 @@ using namespace cv;
 class Slic {
 private:
 	/* The cluster assignments and distance values for each pixel. */
-	vec2di clusters;
-	vec2dd distances;
+	vector<vector<int> > clusters;
+	vector<vector<double> > distances;
 
 	/* The LAB and xy values of the centers. */
-	vec2dd centers;
+	vector<vector<double> > centers;
+	vector<vector<int> > neighbors;
 	/* The number of occurences of each center. */
 	vector<int> center_counts;
 
 	/* The step size per cluster, and the colour (nc) and distance (ns)
 	* parameters. */
 	int step, nc, ns;
+
+	int rows;
+	int cols;
+
+	int centersRowPieces;
+	int centersColPieces;
 
 	/* Compute the distance between a center and an individual pixel. */
 	double compute_dist(int ci, Point pixel, Vec3b colour);
@@ -71,9 +77,10 @@ public:
 	void create_connectivity(Mat image);
 
 	/* Draw functions. Resp. displayal of the centers and the contours. */
-	void display_center_grid(Mat image, Vec3b colour);
 	void display_contours(Mat image, Vec3b colour);
 	void colour_with_cluster_means(Mat image);
+	float colorDistance(Vec3b actuallPixel, Vec3b neighborPixel);
+	void neighborMerge();
 };
 
 #endif

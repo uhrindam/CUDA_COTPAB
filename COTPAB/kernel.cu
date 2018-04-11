@@ -6,9 +6,9 @@ using namespace std;
 using namespace cv;
 
 #define nc 80 //maximum vizsgált távolság a centroidok keresésekor
-#define numberofSuperpixels 4500
+#define numberofSuperpixels 5000
 #define iteration 10
-#define maxColorDistance 15
+#define maxColorDistance 39//15
 #define numberOfNeighbors 8
 
 int cols;
@@ -16,7 +16,7 @@ int rows;
 int step;
 int centersLength;
 int centersRowPieces;
-int centersColPieces; // tolás a neighborshoz
+int centersColPieces;
 int *clusters;
 float *distances;
 float *centers;
@@ -55,6 +55,10 @@ __global__ void compute(int d_cols, int d_rows, int d_step, int d_centersLength,
 		{
 			for (int pixelX = d_centers[clusterIDX *pitch + 4] - (d_step*1.5); pixelX < d_centers[clusterIDX *pitch + 4] + (d_step*1.5); pixelX++)
 			{
+		//for (int pixelY = d_centers[clusterIDX *pitch + 3] - (d_step); pixelY < d_centers[clusterIDX *pitch + 3] + (d_step); pixelY++)
+		//{
+		//	for (int pixelX = d_centers[clusterIDX *pitch + 4] - (d_step); pixelX < d_centers[clusterIDX *pitch + 4] + (d_step); pixelX++)
+		//	{
 				if (pixelX >= 0 && pixelX < d_rows && pixelY >= 0 && pixelY < d_cols)
 				{
 					uchar3 colour = d_colors[d_rows*pixelY + pixelX];
@@ -126,41 +130,6 @@ float colorDistance(uchar3 actuallPixel, uchar3 neighborPixel)
 	float dc = sqrt(pow(actuallPixel.x - neighborPixel.x, 2) + pow(actuallPixel.y - neighborPixel.y, 2)
 		+ pow(actuallPixel.z - neighborPixel.z, 2));
 	return dc;
-}
-
-vector<int3> distinctClusterColors()
-{
-	vector<int3>distinctClusterColors;
-	int howManyDistinctColorYet = 0;
-	for (int i = 0; i < centersLength; i++)
-	{
-		bool unique = true;
-		for (int j = 0; j < howManyDistinctColorYet; j++)
-		{
-			if (centers[i * 5 + 0] == distinctClusterColors[j].x && centers[i * 5 + 1] == distinctClusterColors[j].y &&
-				centers[i * 5 + 2] == distinctClusterColors[j].z)
-			{
-				unique = false;
-			}
-		}
-		if (unique)
-		{
-			int3 uniqueColor;
-			uniqueColor.x = centers[i * 5 + 0];
-			uniqueColor.y = centers[i * 5 + 1];
-			uniqueColor.z = centers[i * 5 + 2];
-			distinctClusterColors.push_back(uniqueColor);
-			howManyDistinctColorYet++;
-		}
-	}
-	return distinctClusterColors;
-}
-
-void pixelAsigneToTheClusterColors()
-{
-	vector<int3> k = distinctClusterColors();
-
-	int a = k.size();
 }
 
 void neighborMerge()
@@ -239,12 +208,19 @@ void neighborMerge()
 		}
 	}
 
-	for (int i = 0; i < centersLength; i++)
+	for (int i = 0; i < cols*rows; i++)
 	{
-		cout << changes[i].x << "\t" << changes[i].y << "\t" << neighbors[i * 8 + 0] << "\t" << neighbors[i * 8 + 1] << "\t" << neighbors[i * 8 + 2] << "\t"
-			<< neighbors[i * 8 + 3] << "\t" << neighbors[i * 8 + 4] << "\t" << neighbors[i * 8 + 5] << "\t" << neighbors[i * 8 + 6]	<< "\t" << neighbors[i * 8 + 7] << endl;
+		if (changes[clusters[i]].y != -1)
+		{
+			clusters[i] = changes[clusters[i]].y;
+		}
 	}
 
+	//for (int i = 0; i < centersLength; i++)
+	//{
+	//	cout << changes[i].x << "\t" << changes[i].y << "\t" << neighbors[i * 8 + 0] << "\t" << neighbors[i * 8 + 1] << "\t" << neighbors[i * 8 + 2] << "\t"
+	//		<< neighbors[i * 8 + 3] << "\t" << neighbors[i * 8 + 4] << "\t" << neighbors[i * 8 + 5] << "\t" << neighbors[i * 8 + 6]	<< "\t" << neighbors[i * 8 + 7] << endl;
+	//}
 	//nem lesz centerslenght méretû, de ebben elfér minden
 	//int2 *changes= new int2[centersLength];
 	//int changesIDX = 0;
@@ -444,8 +420,8 @@ void display_contours(Mat image, Vec3b colour) {
 int main()
 {
 
-	string readPath = "C:\\Users\\Adam\\Desktop\\samples\\completed.jpg";
-	string writePath = "C:\\Users\\Adam\\Desktop\\xmen.jpg";
+	string readPath = "C:\\Users\\Adam\\Desktop\\samples\\jj.jpg";
+	string writePath = "C:\\Users\\Adam\\Desktop\\cuda.jpg";
 	Mat image = imread(readPath, 1);
 	cols = image.cols;
 	rows = image.rows;
@@ -453,7 +429,6 @@ int main()
 	step = (sqrt((cols * rows) / (double)numberofSuperpixels));
 
 	initData(image);
-	//dataCopy();
 
 	int howManyBlocks = centersLength / 700;
 	int threadsPerBlock = (centersLength / howManyBlocks) + 1;
@@ -461,7 +436,7 @@ int main()
 	int threadsToBeStarted2 = rows*cols;
 	int howManyBlocks2 = threadsToBeStarted2 / 700;
 	int threadsPerBlock2 = (threadsToBeStarted2 / howManyBlocks2) + 1;
-	for (int i = 0; i < 1; i++)
+	for (int i = 0; i < iteration; i++)
 	{
 		dataCopy();
 		compute << <howManyBlocks, threadsPerBlock >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
@@ -475,6 +450,8 @@ int main()
 
 		dataFree();
 	}
+
+	neighborMerge();
 
 	dataCopy();
 
@@ -520,7 +497,6 @@ int main()
 	//display_contours(cont, Vec3b(0, 0, 255));
 	//imwrite("C:\\Users\\Adam\\Desktop\\000Cont.jpg", cont);
 
-	neighborMerge();
 
 	//for (int i = 0; i < centersLength; i += 8)
 	//{
@@ -528,9 +504,9 @@ int main()
 	//		neighbors[i + 4].x << " " << neighbors[i + 5].x << " " << neighbors[i + 6].x << " " << neighbors[i + 7].x << " " << endl;
 	//}
 
-	//Mat cwtm = image.clone();
-	//colour_with_cluster_means(cwtm);
-	//imwrite(writePath, cwtm);
+	Mat cwtm = image.clone();
+	colour_with_cluster_means(cwtm);
+	imwrite(writePath, cwtm);
 
 	//getchar();
 	//for (int i = 0; i < rows*cols; i++)

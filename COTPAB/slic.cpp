@@ -35,11 +35,14 @@ void Slic::clear_data() {
 * Output: -
 */
 void Slic::init_data(Mat image) {
+	rows = image.rows;
+	cols = image.cols;
+
 	/* Initialize the cluster and distance matrices. */
-	for (int i = 0; i < image.cols; i++) {
+	for (int i = 0; i < cols; i++) {
 		vector<int> cr;
 		vector<double> dr;
-		for (int j = 0; j < image.rows; j++) {
+		for (int j = 0; j < rows; j++) {
 			cr.push_back(-1);
 			dr.push_back(FLT_MAX);
 		}
@@ -47,26 +50,30 @@ void Slic::init_data(Mat image) {
 		distances.push_back(dr);
 	}
 
+	centersColPieces = 0;
+	centersRowPieces = 0;
 	/* Initialize the centers and counters. */
-	for (int i = step; i < image.cols - step / 2; i += step) {
-		for (int j = step; j < image.rows - step / 2; j += step) {
+	for (int i = step; i < cols - step / 2; i += step) {
+		for (int j = step; j < rows - step / 2; j += step) {
 			vector<double> center;
 			/* Find the local minimum (gradient-wise). */
-			Point nc = find_local_minimum(image, Point(i, j));
-			Vec3b colour = image.at<Vec3b>(nc.y, nc.x);
+			//Point nc = find_local_minimum(image, Point(i, j));
+			Vec3b colour = image.at<Vec3b>(j, i);//nc.y, nc.x);
 
-			/* Generate the center vector. */
+												 /* Generate the center vector. */
 			center.push_back(colour.val[0]);
 			center.push_back(colour.val[1]);
 			center.push_back(colour.val[2]);
-			center.push_back(nc.x);
-			center.push_back(nc.y);
+			center.push_back(i);//nc.x);
+			center.push_back(j);//nc.y);
 
-			/* Append to vector of centers. */
+								/* Append to vector of centers. */
 			centers.push_back(center);
 			center_counts.push_back(0);
 		}
+		centersColPieces++;
 	}
+	centersRowPieces = centers.size() / centersColPieces;
 }
 
 /*
@@ -84,9 +91,6 @@ double Slic::compute_dist(int ci, Point pixel, Vec3b colour) {
 	double ds = sqrt(pow(centers[ci][3] - pixel.x, 2) + pow(centers[ci][4] - pixel.y, 2));
 
 	return sqrt(pow(dc / nc, 2) + pow(ds / ns, 2));
-
-	//double w = 1.0 / (pow(ns / nc, 2));
-	//return sqrt(dc) + sqrt(ds * w);
 }
 
 /*
@@ -147,13 +151,6 @@ void Slic::generate_superpixels(Mat image, int step, int nc) {
 
 						 /* Run EM for 10 iterations (as prescribed by the algorithm). */
 	for (int i = 0; i < NR_ITERATIONS; i++) {
-		/* Reset distance values. */
-		for (int j = 0; j < image.cols; j++) {
-			for (int k = 0; k < image.rows; k++) {
-				distances[j][k] = FLT_MAX;
-			}
-		}
-
 		for (int j = 0; j < (int)centers.size(); j++) {
 			/* Only compare to pixels in a 2 x step by 2 x step region. ----------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!-------------------------- */
 			for (int k = centers[j][3] - step; k < centers[j][3] + step; k++) {
@@ -184,6 +181,7 @@ void Slic::generate_superpixels(Mat image, int step, int nc) {
 		for (int j = 0; j < image.cols; j++) {
 			for (int k = 0; k < image.rows; k++) {
 				int c_id = clusters[j][k];
+				distances[j][k] = FLT_MAX;
 
 				if (c_id != -1) {
 					Vec3b colour = image.at<Vec3b>(k, j);
@@ -228,7 +226,7 @@ void Slic::create_connectivity(Mat image) {
 	const int dy4[4] = { 0, -1,  0,  1 };
 
 	/* Initialize the new cluster matrix. */
-	vec2di new_clusters;
+	vector<vector<int> > new_clusters;
 	for (int i = 0; i < image.cols; i++) {
 		vector<int> nc;
 		for (int j = 0; j < image.rows; j++) {
@@ -286,18 +284,6 @@ void Slic::create_connectivity(Mat image) {
 }
 
 /*
-* Display the cluster centers.
-*
-* Input : The image to display upon (IplImage*) and the colour (CvVec3b).
-* Output: -
-*/
-void Slic::display_center_grid(Mat image, Vec3b colour) {
-	for (int i = 0; i < (int)centers.size(); i++) {
-		//cvCircle(image, Point(centers[i][3], centers[i][4]), 2, colour, 2);-----------------------------------------------------------------------
-	}
-}
-
-/*
 * Display a single pixel wide contour around the clusters.
 *
 * Input : The target image (IplImage*) and contour colour (CvVec3b).
@@ -312,7 +298,7 @@ void Slic::display_contours(Mat image, Vec3b colour) {
 	/* Initialize the contour vector and the matrix detailing whether a pixel
 	* is already taken to be a contour. */
 	vector<Point> contours;
-	vec2db istaken;
+	vector<vector<bool> > istaken;
 	for (int i = 0; i < image.cols; i++) {
 		vector<bool> nb;
 		for (int j = 0; j < image.rows; j++) {
@@ -401,4 +387,95 @@ void Slic::colour_with_cluster_means(Mat image) {
 			image.at<Vec3b>(j, i) = ncolour;
 		}
 	}
+}
+
+float Slic::colorDistance(Vec3b actuallPixel, Vec3b neighborPixel)
+{
+	float dc = sqrt(pow(actuallPixel.val[0] - neighborPixel.val[0], 2) + pow(actuallPixel.val[1] - neighborPixel.val[1], 2)
+		+ pow(actuallPixel.val[2] - neighborPixel.val[2], 2));
+	return dc;
+}
+
+void Slic::neighborMerge()
+{
+	cout << "neighborMerge" << endl;//----------------------------------------------------------------------
+
+	const int dx8[numberOfNeighbors] = { -1, -1,  0,  1, 1, 1, 0, -1 };
+	const int dy8[numberOfNeighbors] = { 0, -1, -1, -1, 0, 1, 1,  1 };
+
+	for (int i = 0; i < (int)centers.size(); i++)
+	{
+		Vec3b actuallCluster;
+		actuallCluster.val[0] = centers[i][0];
+		actuallCluster.val[1] = centers[i][1];
+		actuallCluster.val[2] = centers[i][2];
+
+		int clusterRow = i / centersRowPieces;
+		int clusterCol = i % centersRowPieces;
+
+		for (int j = 0; j < numberOfNeighbors; j++)
+		{
+			if (clusterCol + dy8[j] >= 0 && clusterCol + dy8[j] < centersColPieces
+				&& clusterRow + dx8[j] >= 0 && clusterRow + dx8[j] < centersRowPieces)
+			{
+				Vec3b neighborPixel;
+				neighborPixel.val[0] = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j]))][0];
+				neighborPixel.val[1] = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j]))][1];
+				neighborPixel.val[2] = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j]))][2];
+
+				int a2 = (centersRowPieces * clusterRow + clusterCol);
+				int b2 = (centersRowPieces * clusterRow + clusterCol) * numberOfNeighbors + j;
+				int c2 = centersRowPieces * (clusterRow + dx8[j]) + (clusterCol + dy8[j]);
+
+				if (centersRowPieces * clusterRow + clusterCol < centersRowPieces * (clusterRow + dx8[j]) + (clusterCol + dy8[j]) &&
+					colorDistance(actuallCluster, neighborPixel) < maxColorDistance)
+				{
+					neighbors[i][j] = centersRowPieces * (clusterRow + dx8[j]) + (clusterCol + dy8[j]);
+				}
+			}
+		}
+	}
+
+	Vec2b *changes = new Vec2b[(int)centers.size()];
+	for (int i = 0; i < (int)centers.size(); i++)
+	{
+		changes[i].val[0] = i;
+		changes[i].val[1] = -1;
+	}
+
+	for (int i = 0; i < (int)centers.size(); i++)
+	{
+		for (int j = 0; j < numberOfNeighbors; j++)
+		{
+			int cluster = neighbors[i][j];
+			if (cluster != -1)
+			{
+				int neighborIDX = changes[cluster].val[1];
+				int clusterIDX = i;
+				while (neighborIDX != -1)
+				{
+					//int k = changes[neighborIDX].x;
+					neighborIDX = changes[neighborIDX].val[1];
+					if (neighborIDX != -1)
+						clusterIDX = changes[neighborIDX].val[0];
+				}
+				if (changes[clusterIDX].val[1] != -1)
+					changes[cluster].val[1] = changes[clusterIDX].val[1];
+				else
+					changes[cluster].val[1] = clusterIDX;
+			}
+		}
+	}
+
+	for (int i = 0; i < cols; i++)
+	{
+		for (int j = 0; j < rows; j++)
+		{
+			if (changes[clusters[i][j]].val[1] != -1)
+			{
+				clusters[i][j] = changes[clusters[i][j]].val[1];
+			}
+		}
+	}
+
 }
