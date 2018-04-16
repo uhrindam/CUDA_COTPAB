@@ -43,7 +43,7 @@ private:
 
 	/* The LAB and xy values of the centers. */
 	vector<vector<double> > centers;
-	vector<vector<int> > neighbors;
+	int *neighbors; 
 	/* The number of occurences of each center. */
 	vector<int> center_counts;
 

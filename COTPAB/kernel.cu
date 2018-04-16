@@ -7,7 +7,7 @@ using namespace std;
 using namespace cv;
 
 #define nc 80 //maximum vizsgált távolság a centroidok keresésekor
-#define numberofSuperpixels 5000
+#define numberofSuperpixels 4500
 #define iteration 10
 #define maxColorDistance 39//15
 #define numberOfNeighbors 8
@@ -154,20 +154,9 @@ void neighborMerge()
 				&& clusterRow + dx8[j] >= 0 && clusterRow + dx8[j] < centersRowPieces)
 			{
 				uchar3 neighborPixel;
-				/*neighborPixel.x = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 0];
-				neighborPixel.y = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 1];
-				neighborPixel.z = centers[(centersColPieces*  (clusterCol + dy8[j]) + (clusterRow + dx8[j])) * 5 + 2];
-				int a = (centersColPieces * clusterCol + clusterRow);
-				int b = (centersColPieces * clusterCol + clusterRow) * 8 + j;
-				int c = centersColPieces * (clusterCol + dy8[j]) + (clusterRow + dx8[j]);*/
-
 				neighborPixel.x = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j])) * 5 + 0];
 				neighborPixel.y = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j])) * 5 + 1];
 				neighborPixel.z = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j])) * 5 + 2];
-
-				int a2 = (centersRowPieces * clusterRow + clusterCol);
-				int b2 = (centersRowPieces * clusterRow + clusterCol) * numberOfNeighbors + j;
-				int c2 = centersRowPieces * (clusterRow + dx8[j]) + (clusterCol + dy8[j]);
 
 				if (centersRowPieces * clusterRow + clusterCol < centersRowPieces * (clusterRow + dx8[j]) + (clusterCol + dy8[j]) &&
 					colorDistance(actuallCluster, neighborPixel) < maxColorDistance)
@@ -196,7 +185,6 @@ void neighborMerge()
 				int clusterIDX = i;
 				while (neighborIDX != -1)
 				{
-					//int k = changes[neighborIDX].x;
 					neighborIDX = changes[neighborIDX].y;
 					if (neighborIDX != -1)
 						clusterIDX = changes[neighborIDX].x;
@@ -424,7 +412,7 @@ int main(int ArgsC, char* Args[])
 	string writePath;
 	if (ArgsC < 2)
 	{
-		readPath = "C:\\Users\\Adam\\Desktop\\samples\\completed.jpg";
+		readPath = "C:\\Users\\Adam\\Desktop\\samples\\hulk1.jpg";
 		writePath = "C:\\Users\\Adam\\Desktop\\xmen.jpg";
 	}
 	else
@@ -440,9 +428,8 @@ int main(int ArgsC, char* Args[])
 	/* Yield the number of superpixels and weight-factors from the user. */
 	int w = image.cols;
 	int h = image.rows;
-	int nr_superpixels = 5000;
 
-	double step = (sqrt((w * h) / (double)nr_superpixels));
+	double step = (sqrt((w * h) / (double)numberofSuperpixels));
 
 	Slic slic;
 	slic.generate_superpixels(lab_image, step, nc);
@@ -451,7 +438,7 @@ int main(int ArgsC, char* Args[])
 	slic.colour_with_cluster_means(image);
 	imwrite(writePath, image);
 
-
+	////----------------------------------------------------------------------
 	//cols = image.cols;
 	//rows = image.rows;
 
@@ -548,30 +535,6 @@ int main(int ArgsC, char* Args[])
 	//	//seged[i] << " " << seged[i + 1] << " " << seged[i + 2] << " " << seged[i + 3] << " " << seged[i + 4] << " --> " << center_counts[c++] << endl;
 	//}
 	printf("vege");
-
-	///* Load the image and convert to Lab colour space. */
-	//Mat image = imread("C:\\Users\\Adam\\Desktop\\samples\\completed.jpg", 1);
-	//Mat lab_image = image.clone();
-	//cvtColor(image, lab_image, CV_BGR2Lab);
-	///* Yield the number of superpixels and weight-factors from the user. */
-	//int w = image.cols;
-	//int h = image.rows;
-	//int nr_superpixels = 5000;
-	//int nc = 80;
-	//double step = (sqrt((w * h) / (double)nr_superpixels));
-	////1400*900-as képnél, 1000 superpixellel --> 35,496 --> vízszintesen 39,444, függõlegesen 25,354
-	///* Perform the SLIC superpixel algorithm. */
-	//Slic slic;
-	//slic.generate_superpixels(lab_image, step, nc);
-	//slic.create_connectivity(lab_image);
-	///* Display the contours and show the result. */
-	//Mat tt = image.clone();
-	//slic.display_contours(tt, Vec3b(0, 0, 255));
-	//imwrite("C:\\Users\\Adam\\Desktop\\0MATsamplewitchLines.jpg", tt);
-	////----------------------
-	//slic.colour_with_cluster_means(image);
-	//imwrite("C:\\Users\\Adam\\Desktop\\1MATsamplefilled.jpg", image);
-	////----------------------
 
 	getchar();
 }

@@ -75,14 +75,13 @@ void Slic::init_data(Mat image) {
 	}
 	centersRowPieces = centers.size() / centersColPieces;
 
+	neighbors = new int[centers.size() * numberOfNeighbors];
 	for (int i = 0; i < centers.size(); i++)
 	{
-		vector<int> neighbor;
 		for (int j = 0; j < numberOfNeighbors; j++)
 		{
-			neighbor.push_back(-1);
+			neighbors[i*numberOfNeighbors + j] = -1;
 		}
-		neighbors.push_back(neighbor);
 	}
 }
 
@@ -180,6 +179,8 @@ void Slic::generate_superpixels(Mat image, int step, int nc) {
 				}
 			}
 		}
+		if (i % 3 == 0)
+			printf("%i. SP iter\n", i);
 
 		/* Clear the center values. */
 		for (int j = 0; j < (int)centers.size(); j++) {
@@ -413,113 +414,82 @@ void Slic::neighborMerge()
 	const int dx8[numberOfNeighbors] = { -1, -1,  0,  1, 1, 1, 0, -1 };
 	const int dy8[numberOfNeighbors] = { 0, -1, -1, -1, 0, 1, 1,  1 };
 
+	int *centersIn1D = new int[centers.size() * 5];
+	for (int i = 0; i < centers.size(); i++)
+	{
+		centersIn1D[i * 5 + 0] = centers[i][0];
+		centersIn1D[i * 5 + 1] = centers[i][1];
+		centersIn1D[i * 5 + 2] = centers[i][2];
+		centersIn1D[i * 5 + 4] = centers[i][3];
+		centersIn1D[i * 5 + 5] = centers[i][4];
+	}
+
 	for (int i = 0; i < (int)centers.size(); i++)
 	{
-		if (i ==0)
-		{
-			printf("merge 0\n");
-		}
-
-
-
 		Vec3b actuallCluster;
-		actuallCluster.val[0] = centers[i][0];
-		actuallCluster.val[1] = centers[i][1];
-		actuallCluster.val[2] = centers[i][2];
+		actuallCluster.val[0] = centersIn1D[i * 5];
+		actuallCluster.val[1] = centersIn1D[i * 5 + 1];
+		actuallCluster.val[2] = centersIn1D[i * 5 + 2];
 
 		int clusterRow = i / centersRowPieces;
 		int clusterCol = i % centersRowPieces;
 
 		for (int j = 0; j < numberOfNeighbors; j++)
 		{
-			if (i == 0 && j == 0)
-			{
-				printf("merge 1\n");
-			}
-
-
-
 			if (clusterCol + dy8[j] >= 0 && clusterCol + dy8[j] < centersColPieces
 				&& clusterRow + dx8[j] >= 0 && clusterRow + dx8[j] < centersRowPieces)
 			{
-				int aa1 = clusterCol + dy8[j];
-				int aa2 = clusterRow + dx8[j];
-
 				Vec3b neighborPixel;
-				neighborPixel.val[0] = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j]))][0];
-				neighborPixel.val[1] = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j]))][1];
-				neighborPixel.val[2] = centers[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j]))][2];
-
-				int a2 = (centersRowPieces * clusterRow + clusterCol);
-				int b2 = (centersRowPieces * clusterRow + clusterCol) * numberOfNeighbors + j;
-				int c2 = centersRowPieces * (clusterRow + dx8[j]) + (clusterCol + dy8[j]);
+				neighborPixel.val[0] = centersIn1D[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j])) * 5 + 0];
+				neighborPixel.val[1] = centersIn1D[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j])) * 5 + 1];
+				neighborPixel.val[2] = centersIn1D[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j])) * 5 + 2];
 
 				if (centersRowPieces * clusterRow + clusterCol < centersRowPieces * (clusterRow + dx8[j]) + (clusterCol + dy8[j]) &&
 					colorDistance(actuallCluster, neighborPixel) < maxColorDistance)
 				{
-					neighbors[i][j] = centersRowPieces * (clusterRow + dx8[j]) + (clusterCol + dy8[j]);
+					neighbors[(centersRowPieces * clusterRow + clusterCol) * numberOfNeighbors + j] = centersRowPieces * (clusterRow + dx8[j]) + (clusterCol + dy8[j]);
 				}
 			}
 		}
 	}
 
-	printf("merge before ini\n");
-
-
-	Vec2b *changes = new Vec2b[(int)centers.size()];
+	vector<vector<int> > changes;
 	for (int i = 0; i < (int)centers.size(); i++)
 	{
-		changes[i].val[0] = i;
-		changes[i].val[1] = -1;
+		vector<int> change;
+		change.push_back(i);
+		change.push_back( -1);
+		changes.push_back(change);
 	}
 
-	
-	printf("merge ini");
+	for (int i = 0; i < centers.size(); i++)
+	{
+		cout << i << "\t" << neighbors[i*numberOfNeighbors + 0] << "\t" << neighbors[i*numberOfNeighbors + 1]
+			<< "\t" << neighbors[i*numberOfNeighbors + 2] << "\t" << neighbors[i*numberOfNeighbors + 3]
+			<< "\t" << neighbors[i*numberOfNeighbors + 4] << "\t" << neighbors[i*numberOfNeighbors + 5]
+			<< "\t" << neighbors[i*numberOfNeighbors + 6] << "\t" << neighbors[i*numberOfNeighbors + 7] << endl;
+	}
 
-
-
-	for (int i = 0; i < (int)centers.size(); i++)
+	for (int i = 0; i < centers.size(); i++)
 	{
 		for (int j = 0; j < numberOfNeighbors; j++)
 		{
-
-
-
-			if (i == 0 && j == 0)
-			{
-				printf("merge 2");
-			}
-
-
-
-
-			int cluster = neighbors[i][j];
+			int cluster = neighbors[i * numberOfNeighbors + j];
 			if (cluster != -1)
 			{
-				int neighborIDX = changes[cluster].val[1];
+				int neighborIDX = changes[cluster][1];
 				int clusterIDX = i;
 				while (neighborIDX != -1)
 				{
-					neighborIDX = changes[neighborIDX].val[1];
+					neighborIDX = changes[neighborIDX][1];
 					if (neighborIDX != -1)
-						clusterIDX = changes[neighborIDX].val[0];
+						clusterIDX = changes[neighborIDX][0];
 				}
-				if (changes[clusterIDX].val[1] != -1)
-					changes[cluster].val[1] = changes[clusterIDX].val[1];
+				if (changes[clusterIDX][1] != -1)
+					changes[cluster][1] = changes[clusterIDX][1];
 				else
-					changes[cluster].val[1] = clusterIDX;
+					changes[cluster][1] = clusterIDX;
 			}
-
-
-
-
-			if (i == 0 && j == 0)
-			{
-				printf("merge 3");
-			}
-
-
-
 		}
 	}
 
@@ -527,14 +497,9 @@ void Slic::neighborMerge()
 	{
 		for (int j = 0; j < rows; j++)
 		{
-			if (i == 0 && j == 0)
+			if (changes[centersIn1D[i*rows +j]][1] != -1)
 			{
-				printf("merge 4");
-			}
-
-			if (changes[clusters[i][j]].val[1] != -1)
-			{
-				clusters[i][j] = changes[clusters[i][j]].val[1];
+				clusters[i][j] = changes[centersIn1D[i*rows + j]][1];
 			}
 		}
 	}
