@@ -410,131 +410,93 @@ int main(int ArgsC, char* Args[])
 {
 	string readPath;
 	string writePath;
+	string isGPUProcess = "gpu";
 	if (ArgsC < 2)
 	{
 		readPath = "C:\\Users\\Adam\\Desktop\\samples\\hulk1.jpg";
 		writePath = "C:\\Users\\Adam\\Desktop\\xmen.jpg";
+		if (Args[3] == "cpu")
+			isGPUProcess = "cpu";
 	}
 	else
 	{
 		readPath = Args[1];
 		writePath = Args[2];
 	}
-
 	Mat image = imread(readPath, 1);
-	Mat lab_image = image.clone();
-	cvtColor(image, lab_image, CV_BGR2Lab);
+	cols = image.cols;
+	rows = image.rows;
 
-	/* Yield the number of superpixels and weight-factors from the user. */
-	int w = image.cols;
-	int h = image.rows;
+	step = (sqrt((cols * rows) / (double)numberofSuperpixels));
+	if (isGPUProcess == "gpu")
+	{
+		initData(image);
 
-	double step = (sqrt((w * h) / (double)numberofSuperpixels));
+		int howManyBlocks = centersLength / 700;
+		int threadsPerBlock = (centersLength / howManyBlocks) + 1;
 
-	Slic slic;
-	slic.generate_superpixels(lab_image, step, nc);
+		int threadsToBeStarted2 = rows*cols;
+		int howManyBlocks2 = threadsToBeStarted2 / 700;
+		int threadsPerBlock2 = (threadsToBeStarted2 / howManyBlocks2) + 1;
+		for (int i = 0; i < iteration; i++)
+		{
+			dataCopy();
+			compute << <howManyBlocks, threadsPerBlock >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
+			compute1 << <howManyBlocks2, threadsPerBlock2 >> > (cols, rows, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
+			compute2 << <howManyBlocks, threadsPerBlock >> > (centersLength, d_centers, d_center_counts, 5);
 
-	slic.neighborMerge();
-	slic.colour_with_cluster_means(image);
-	imwrite(writePath, image);
+			cudaMemcpy(distances, d_distances, sizeof(float)*rows*cols, cudaMemcpyDeviceToHost);
+			cudaMemcpy(clusters, d_clusters, sizeof(int)*rows*cols, cudaMemcpyDeviceToHost);
+			cudaMemcpy(centers, d_centers, sizeof(int)*centersLength * 5, cudaMemcpyDeviceToHost);
+			cudaMemcpy(center_counts, d_center_counts, sizeof(int)*centersLength, cudaMemcpyDeviceToHost);
 
-	////----------------------------------------------------------------------
-	//cols = image.cols;
-	//rows = image.rows;
+			dataFree();
+		}
 
-	//step = (sqrt((cols * rows) / (double)numberofSuperpixels));
+		neighborMerge();
 
-	//initData(image);
+		dataCopy();
 
-	//int howManyBlocks = centersLength / 700;
-	//int threadsPerBlock = (centersLength / howManyBlocks) + 1;
+		compute3 << <howManyBlocks2, threadsPerBlock2 >> > (cols, rows, d_clusters, d_pixelColorsWithClusterMeanColor, d_centers);
 
-	//int threadsToBeStarted2 = rows*cols;
-	//int howManyBlocks2 = threadsToBeStarted2 / 700;
-	//int threadsPerBlock2 = (threadsToBeStarted2 / howManyBlocks2) + 1;
-	//for (int i = 0; i < iteration; i++)
-	//{
-	//	dataCopy();
-	//	compute << <howManyBlocks, threadsPerBlock >> > (cols, rows, step, centersLength, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
-	//	compute1 << <howManyBlocks2, threadsPerBlock2 >> > (cols, rows, d_clusters, d_distances, d_centers, d_center_counts, d_colors, 5);
-	//	compute2 << <howManyBlocks, threadsPerBlock >> > (centersLength, d_centers, d_center_counts, 5);
+		cudaMemcpy(pixelColorsWithClusterMeanColor, d_pixelColorsWithClusterMeanColor, sizeof(float)*rows*cols * 3, cudaMemcpyDeviceToHost);
 
-	//	cudaMemcpy(distances, d_distances, sizeof(float)*rows*cols, cudaMemcpyDeviceToHost);
-	//	cudaMemcpy(clusters, d_clusters, sizeof(int)*rows*cols, cudaMemcpyDeviceToHost);
-	//	cudaMemcpy(centers, d_centers, sizeof(int)*centersLength * 5, cudaMemcpyDeviceToHost);
-	//	cudaMemcpy(center_counts, d_center_counts, sizeof(int)*centersLength, cudaMemcpyDeviceToHost);
+		dataFree();
 
-	//	dataFree();
-	//}
+		//ofstream myfile2;
+		//myfile2.open("2.txt");
+		//for (int i = 0; i < centersLength; i++)
+		//{
+		//	myfile2 << centers[i * 5 + 0] << " " << centers[i * 5 + 1] << " " << centers[i * 5 + 2] << " " << endl;
+		//}
+		//myfile2.close();
 
-	//neighborMerge();
+		int a = 0;
+		for (int i = 0; i < rows*cols; i++) { if (clusters[i] == -1) { a++; } }
+		int b = rows*cols - a;
 
-	//dataCopy();
+		printf("%i elinditott szal\n", threadsPerBlock2*howManyBlocks2);
+		printf("%i steps\n", step);
+		printf("%i rows\n", rows);
+		printf("%i cols\n", cols);
+		printf("%i darab cluster\n", centersLength);
+		printf("%i darab pixel\n", rows*cols);
+		printf("%i darab elinditott szal\n", threadsPerBlock*howManyBlocks);
+		printf("%i darab clusterhez van renderve\n", b);
+		printf("%i darab nincs clusterhez renderve\n", a);
 
-	//compute3 << <howManyBlocks2, threadsPerBlock2 >> > (cols, rows, d_clusters, d_pixelColorsWithClusterMeanColor, d_centers);
-
-	//cudaMemcpy(pixelColorsWithClusterMeanColor, d_pixelColorsWithClusterMeanColor, sizeof(float)*rows*cols * 3, cudaMemcpyDeviceToHost);
-
-	//dataFree();
-
-	////ofstream myfile2;
-	////myfile2.open("2.txt");
-	////for (int i = 0; i < centersLength; i++)
-	////{
-	////	myfile2 << centers[i * 5 + 0] << " " << centers[i * 5 + 1] << " " << centers[i * 5 + 2] << " " << endl;
-	////}
-	////myfile2.close();
-
-	//int a = 0;
-	//for (int i = 0; i < rows*cols; i++) { if (clusters[i] == -1) { a++; } }
-	//int b = rows*cols - a;
-
-	//printf("%i elinditott szal\n", threadsPerBlock2*howManyBlocks2);
-	//printf("%i steps\n", step);
-	//printf("%i rows\n", rows);
-	//printf("%i cols\n", cols);
-	//printf("%i darab cluster\n", centersLength);
-	//printf("%i darab pixel\n", rows*cols);
-	//printf("%i darab elinditott szal\n", threadsPerBlock*howManyBlocks);
-	//printf("%i darab clusterhez van renderve\n", b);
-	//printf("%i darab nincs clusterhez renderve\n", a);
-
-	//int dis = 0;
-	//for (int i = 0; i < rows*cols; i++) { if (distances[i] == FLT_MAX) { dis++; } }
-	//printf("%i dis\n", dis);
+		int dis = 0;
+		for (int i = 0; i < rows*cols; i++) { if (distances[i] == FLT_MAX) { dis++; } }
+		printf("%i dis\n", dis);
 
 
-	//int mennyi = 0;
-	//for (int i = 0; i < centersLength; i++) { mennyi += center_counts[i]; }
-	//printf("%i darab pixel\n", rows*cols);
-	//printf("%i mennyi\n", mennyi);
+		int mennyi = 0;
+		for (int i = 0; i < centersLength; i++) { mennyi += center_counts[i]; }
+		printf("%i darab pixel\n", rows*cols);
+		printf("%i mennyi\n", mennyi);
 
-	//Mat cwtm = image.clone();
-	//colour_with_cluster_means(cwtm);
-	//imwrite(writePath, cwtm);
-	//----------------------------------------------------------------------------
-
-	//Mat cont = image.clone();
-	//display_contours(cont, Vec3b(0, 0, 255));
-	//imwrite("C:\\Users\\Adam\\Desktop\\000Cont.jpg", cont);
-	//for (int i = 0; i < centersLength; i += 8)
-	//{
-	//	cout << i / 8 << "\t" << neighbors[i + 0].x << " " << neighbors[i + 1].x << " " << neighbors[i + 2].x << " " << neighbors[i + 3].x << " " <<
-	//		neighbors[i + 4].x << " " << neighbors[i + 5].x << " " << neighbors[i + 6].x << " " << neighbors[i + 7].x << " " << endl;
-	//}
-	//getchar();
-	//for (int i = 0; i < rows*cols; i++)
-	//{
-	//	cout << distances[i] << endl;
-	//}
-	//getchar();
-	//int c = 0;
-	//for (int i = 0; i < centersLength; i += 5)
-	//{
-	//	cout << centers[i] << " " << centers[i + 1] << " " << centers[i + 2] << " " << centers[i + 3] << " " << centers[i + 4] << "  -->  " << endl;
-	//	//seged[i] << " " << seged[i + 1] << " " << seged[i + 2] << " " << seged[i + 3] << " " << seged[i + 4] << " --> " << center_counts[c++] << endl;
-	//}
-	printf("vege");
-
-	getchar();
+		Mat cwtm = image.clone();
+		colour_with_cluster_means(cwtm);
+		imwrite(writePath, cwtm);
+	}
 }

@@ -497,9 +497,9 @@ void Slic::neighborMerge()
 	{
 		for (int j = 0; j < rows; j++)
 		{
-			if (changes[centersIn1D[i*rows +j]][1] != -1)
+			if (changes[clusters[i][j]][1] != -1)
 			{
-				clusters[i][j] = changes[centersIn1D[i*rows + j]][1];
+				clusters[i][j] = changes[clusters[i][j]][1];
 			}
 		}
 	}
