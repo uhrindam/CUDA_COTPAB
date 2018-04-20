@@ -1,25 +1,11 @@
 #include "slic.h"
 
-/*
-* Constructor. Nothing is done here.
-*/
-Slic::Slic() {
+Slic::Slic() {}
 
-}
-
-/*
-* Destructor. Clear any present data.
-*/
 Slic::~Slic() {
 	clear_data();
 }
 
-/*
-* Clear the data as saved by the algorithm.
-*
-* Input : -
-* Output: -
-*/
 void Slic::clear_data() {
 	clusters.clear();
 	distances.clear();
@@ -27,13 +13,6 @@ void Slic::clear_data() {
 	center_counts.clear();
 }
 
-/*
-* Initialize the cluster centers and initial values of the pixel-wise cluster
-* assignment and distance values.
-*
-* Input : The image (IplImage*).
-* Output: -
-*/
 void Slic::init_data(Mat image) {
 	rows = image.rows;
 	cols = image.cols;
@@ -57,17 +36,14 @@ void Slic::init_data(Mat image) {
 		for (int j = step; j < rows - step / 2; j += step) {
 			vector<double> center;
 			/* Find the local minimum (gradient-wise). */
-			//Point nc = find_local_minimum(image, Point(i, j));
-			Vec3b colour = image.at<Vec3b>(j, i);//nc.y, nc.x);
+			Vec3b colour = image.at<Vec3b>(j, i);
 
-												 /* Generate the center vector. */
 			center.push_back(colour.val[0]);
 			center.push_back(colour.val[1]);
 			center.push_back(colour.val[2]);
-			center.push_back(i);//nc.x);
-			center.push_back(j);//nc.y);
+			center.push_back(i);
+			center.push_back(j);
 
-								/* Append to vector of centers. */
 			centers.push_back(center);
 			center_counts.push_back(0);
 		}
@@ -85,13 +61,6 @@ void Slic::init_data(Mat image) {
 	}
 }
 
-/*
-* Compute the distance between a cluster center and an individual pixel.
-*
-* Input : The cluster index (int), the pixel (Point), and the Lab values of
-*         the pixel (CvVec3b).
-* Output: The distance (double).
-*/
 double Slic::compute_dist(int ci, Point pixel, Vec3b colour) {
 	//színtávolság
 	double dc = sqrt(pow(centers[ci][0] - colour.val[0], 2) + pow(centers[ci][1]
@@ -102,50 +71,6 @@ double Slic::compute_dist(int ci, Point pixel, Vec3b colour) {
 	return sqrt(pow(dc / nc, 2) + pow(ds / ns, 2));
 }
 
-/*
-* Find a local gradient minimum of a pixel in a 3x3 neighbourhood. This
-* method is called upon initialization of the cluster centers.
-*
-* Input : The image (IplImage*) and the pixel center (Point).
-* Output: The local gradient minimum (Point).
-*/
-Point Slic::find_local_minimum(Mat image, Point center) {
-	double min_grad = FLT_MAX;
-	Point loc_min = Point(center.x, center.y);
-
-	for (int i = center.x - 1; i < center.x + 2; i++) {
-		for (int j = center.y - 1; j < center.y + 2; j++) {
-			Vec3b c1 = image.at<Vec3b>(j + 1, i);
-			Vec3b c2 = image.at<Vec3b>(j, i + 1);
-			Vec3b c3 = image.at<Vec3b>(j, i);
-			/* Convert colour values to grayscale values. */
-			double i1 = c1.val[0];
-			double i2 = c2.val[0];
-			double i3 = c3.val[0];
-			/*double i1 = c1.val[0] * 0.11 + c1.val[1] * 0.59 + c1.val[2] * 0.3;
-			double i2 = c2.val[0] * 0.11 + c2.val[1] * 0.59 + c2.val[2] * 0.3;
-			double i3 = c3.val[0] * 0.11 + c3.val[1] * 0.59 + c3.val[2] * 0.3;*/
-
-			/* Compute horizontal and vertical gradients and keep track of the
-			minimum. */
-			if (sqrt(pow(i1 - i3, 2)) + sqrt(pow(i2 - i3, 2)) < min_grad) {
-				min_grad = fabs(i1 - i3) + fabs(i2 - i3);
-				loc_min.x = i;
-				loc_min.y = j;
-			}
-		}
-	}
-
-	return loc_min;
-}
-
-/*
-* Compute the over-segmentation based on the step-size and relative weighting
-* of the pixel and colour values.
-*
-* Input : The Lab image (IplImage*), the stepsize (int), and the weight (int).
-* Output: -
-*/
 void Slic::generate_superpixels(Mat image, int step, int nc) {
 	this->step = step;
 	this->nc = nc;
@@ -154,14 +79,12 @@ void Slic::generate_superpixels(Mat image, int step, int nc) {
 	/* Clear previous data (if any), and re-initialize it. */
 	clear_data();
 
-	cout << "Init" << endl;//----------------------------------------------------------------------
 	init_data(image);
-	cout << "SP" << endl;//----------------------------------------------------------------------
 
-						 /* Run EM for 10 iterations (as prescribed by the algorithm). */
+	/* Run EM for 10 iterations (as prescribed by the algorithm). */
 	for (int i = 0; i < NR_ITERATIONS; i++) {
 		for (int j = 0; j < (int)centers.size(); j++) {
-			/* Only compare to pixels in a 2 x step by 2 x step region. ----------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!-------------------------- */
+			/* Only compare to pixels in a 2 x step by 2 x step region.*/
 			for (int k = centers[j][3] - step; k < centers[j][3] + step; k++) {
 				for (int l = centers[j][4] - step; l < centers[j][4] + step; l++) {
 
@@ -179,8 +102,6 @@ void Slic::generate_superpixels(Mat image, int step, int nc) {
 				}
 			}
 		}
-		if (i % 3 == 0)
-			printf("%i. SP iter\n", i);
 
 		/* Clear the center values. */
 		for (int j = 0; j < (int)centers.size(); j++) {
@@ -219,181 +140,15 @@ void Slic::generate_superpixels(Mat image, int step, int nc) {
 	}
 }
 
-/*
-* Enforce connectivity of the superpixels. This part is not actively discussed
-* in the paper, but forms an active part of the implementation of the authors
-* of the paper.
-*
-* Input : The image (IplImage*).
-* Output: -
-*/
-void Slic::create_connectivity(Mat image) {
-	cout << "create connectivity" << endl;//----------------------------------------------------------------------
-
-	int label = 0, adjlabel = 0;
-	const int lims = (image.cols * image.rows) / ((int)centers.size());
-
-	const int dx4[4] = { -1,  0,  1,  0 };
-	const int dy4[4] = { 0, -1,  0,  1 };
-
-	/* Initialize the new cluster matrix. */
-	vector<vector<int> > new_clusters;
-	for (int i = 0; i < image.cols; i++) {
-		vector<int> nc;
-		for (int j = 0; j < image.rows; j++) {
-			nc.push_back(-1);
-		}
-		new_clusters.push_back(nc);
-	}
-
-	for (int i = 0; i < image.cols; i++) {
-		for (int j = 0; j < image.rows; j++) {
-			if (new_clusters[i][j] == -1) {
-				vector<Point> elements;
-				elements.push_back(Point(i, j));
-
-				/* Find an adjacent label, for possible use later. */
-				for (int k = 0; k < 4; k++) {
-					int x = elements[0].x + dx4[k];
-					int y = elements[0].y + dy4[k];
-
-					if (x >= 0 && x < image.cols && y >= 0 && y < image.rows) {
-						if (new_clusters[x][y] >= 0) {
-							adjlabel = new_clusters[x][y];
-						}
-					}
-				}
-
-				int count = 1;
-				for (int c = 0; c < count; c++) {
-					for (int k = 0; k < 4; k++) {
-						int x = elements[c].x + dx4[k];
-						int y = elements[c].y + dy4[k];
-
-						if (x >= 0 && x < image.cols && y >= 0 && y < image.rows) {
-							if (new_clusters[x][y] == -1 && clusters[i][j] == clusters[x][y]) {
-								elements.push_back(Point(x, y));
-								new_clusters[x][y] = label;
-								count += 1;
-							}
-						}
-					}
-				}
-
-				/* Use the earlier found adjacent label if a segment size is
-				smaller than a limit. */
-				if (count <= lims >> 2) {
-					for (int c = 0; c < count; c++) {
-						new_clusters[elements[c].x][elements[c].y] = adjlabel;
-					}
-					label -= 1;
-				}
-				label += 1;
-			}
-		}
-	}
-}
-
-/*
-* Display a single pixel wide contour around the clusters.
-*
-* Input : The target image (IplImage*) and contour colour (CvVec3b).
-* Output: -
-*/
-void Slic::display_contours(Mat image, Vec3b colour) {
-	cout << "Display contours" << endl;//----------------------------------------------------------------------
-
-	const int dx8[8] = { -1, -1,  0,  1, 1, 1, 0, -1 };
-	const int dy8[8] = { 0, -1, -1, -1, 0, 1, 1,  1 };
-
-	/* Initialize the contour vector and the matrix detailing whether a pixel
-	* is already taken to be a contour. */
-	vector<Point> contours;
-	vector<vector<bool> > istaken;
-	for (int i = 0; i < image.cols; i++) {
-		vector<bool> nb;
-		for (int j = 0; j < image.rows; j++) {
-			nb.push_back(false);
-		}
-		istaken.push_back(nb);
-	}
-
-	/* Go through all the pixels. */
-	for (int i = 0; i < image.cols; i++) {
-		for (int j = 0; j < image.rows; j++) {
-			int nr_p = 0;
-
-			/* Compare the pixel to its 8 neighbours. */
-			for (int k = 0; k < 8; k++) {
-				int x = i + dx8[k], y = j + dy8[k];
-
-				if (x >= 0 && x < image.cols && y >= 0 && y < image.rows) {
-					if (istaken[x][y] == false && clusters[i][j] != clusters[x][y]) {
-						nr_p += 1;
-					}
-				}
-			}
-
-			/* Add the pixel to the contour list if desired. */
-			if (nr_p >= 2) {
-				contours.push_back(Point(i, j));
-				istaken[i][j] = true;
-			}
-		}
-	}
-
-	/* Draw the contour pixels. */
-	for (int i = 0; i < (int)contours.size(); i++) {
-		image.at<Vec3b>(contours[i].y, contours[i].x) = colour;
-	}
-}
-
-/*
-* Give the pixels of each cluster the same colour values. The specified colour
-* is the mean RGB colour per cluster.
-*
-* Input : The target image (IplImage*).
-* Output: -
-*/
 void Slic::colour_with_cluster_means(Mat image) {
-	cout << "FILL" << endl;//----------------------------------------------------------------------
-
-	vector<vector<int>> t_colours(centers.size());
-	for (int i = 0; i < t_colours.size(); i++)
-	{
-		t_colours[i].push_back(0);
-		t_colours[i].push_back(0);
-		t_colours[i].push_back(0);
-	}
-
-	/* Gather the colour values per cluster. */
-	for (int i = 0; i < image.cols; i++) {
-		for (int j = 0; j < image.rows; j++) {
-			int index = clusters[i][j];
-			Vec3b colour = image.at<Vec3b>(j, i);
-
-			t_colours[index][0] += colour.val[0];
-			t_colours[index][1] += colour.val[1];
-			t_colours[index][2] += colour.val[2];
-		}
-	}
-
-	/* Divide by the number of pixels per cluster to get the mean colour. */
-	for (int i = 0; i < (int)t_colours.size(); i++) {
-		t_colours[i][0] /= center_counts[i];
-		t_colours[i][1] /= center_counts[i];
-		t_colours[i][2] /= center_counts[i];
-	}
-
-	/* Fill in. */
 	for (int i = 0; i < image.cols; i++) {
 		for (int j = 0; j < image.rows; j++) {
 			int idx = clusters[i][j];
 			Vec3b ncolour = image.at<Vec3b>(j, i);
 
-			ncolour.val[0] = t_colours[idx][0];
-			ncolour.val[1] = t_colours[idx][1];
-			ncolour.val[2] = t_colours[idx][2];
+			ncolour.val[0] = centers[idx][0];
+			ncolour.val[1] = centers[idx][1];
+			ncolour.val[2] = centers[idx][2];
 
 			image.at<Vec3b>(j, i) = ncolour;
 		}
@@ -409,8 +164,6 @@ float Slic::colorDistance(Vec3b actuallPixel, Vec3b neighborPixel)
 
 void Slic::neighborMerge()
 {
-	cout << "neighborMerge" << endl;//----------------------------------------------------------------------
-
 	const int dx8[numberOfNeighbors] = { -1, -1,  0,  1, 1, 1, 0, -1 };
 	const int dy8[numberOfNeighbors] = { 0, -1, -1, -1, 0, 1, 1,  1 };
 
@@ -436,8 +189,8 @@ void Slic::neighborMerge()
 
 		for (int j = 0; j < numberOfNeighbors; j++)
 		{
-			if (clusterCol + dy8[j] >= 0 && clusterCol + dy8[j] < centersColPieces
-				&& clusterRow + dx8[j] >= 0 && clusterRow + dx8[j] < centersRowPieces)
+			if (clusterCol + dy8[j] >= 0 && clusterCol + dy8[j] < centersRowPieces
+				&& clusterRow + dx8[j] >= 0 && clusterRow + dx8[j] < centersColPieces)
 			{
 				Vec3b neighborPixel;
 				neighborPixel.val[0] = centersIn1D[(centersRowPieces* (clusterRow + dx8[j]) + (clusterCol + dy8[j])) * 5 + 0];
@@ -458,16 +211,8 @@ void Slic::neighborMerge()
 	{
 		vector<int> change;
 		change.push_back(i);
-		change.push_back( -1);
+		change.push_back(-1);
 		changes.push_back(change);
-	}
-
-	for (int i = 0; i < centers.size(); i++)
-	{
-		cout << i << "\t" << neighbors[i*numberOfNeighbors + 0] << "\t" << neighbors[i*numberOfNeighbors + 1]
-			<< "\t" << neighbors[i*numberOfNeighbors + 2] << "\t" << neighbors[i*numberOfNeighbors + 3]
-			<< "\t" << neighbors[i*numberOfNeighbors + 4] << "\t" << neighbors[i*numberOfNeighbors + 5]
-			<< "\t" << neighbors[i*numberOfNeighbors + 6] << "\t" << neighbors[i*numberOfNeighbors + 7] << endl;
 	}
 
 	for (int i = 0; i < centers.size(); i++)
